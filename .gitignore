@@ -1,0 +1,26 @@
+# Instrucciones locales de Claude (cada quien tiene su copia)
+CLAUDE.md
+CLAUDE.local.md
+.claude/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+.ipynb_checkpoints/
+
+# Secretos
+.env
+*.env
+
+# Datos crudos de Danu (confirmar con el equipo antes de subirlos; el repo es público)
+data/raw/
+
+# Sistema / editor
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
