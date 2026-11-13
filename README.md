@@ -25,7 +25,7 @@ Ver [`AVANCE_PROYECTO.md`](AVANCE_PROYECTO.md).
 ## Cómo trabajar
 
 - Rama por tarea: `feat/...`, `fix/...`. PR a `main`.
-- Commits con [Conventional Commits](https://www.conventionalcommits.org/): `feat: add region filter`.
+- Commits con [Conventional Commits](https://www.conventionalcommits.org/), descripción en español: `feat: agrega filtro de región`.
 - Stack: **Python + Streamlit**.
 
 ## Cómo correrlo

@@ -18,6 +18,7 @@ _Última actualización: 2026-11-12_
 
 ## Por hacer
 
+- [ ] **David**: subir al repo el tablero que tenemos hasta ahorita.
 - [ ] Cargar `base_final` y módulo único de KPIs (rotación, cobertura, sobrestock, inventario sin vender, Δ ventas).
 - [ ] Vista principal del descriptivo + filtros (mes, región, categoría).
 - [ ] Vistas de detalle (región, categoría).
