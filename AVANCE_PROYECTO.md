@@ -11,7 +11,8 @@ _Última actualización: 2026-11-12_
 
 ## En curso / por decidir
 
-- [ ] **Stack del tablero** (Python confirmado; falta elegir herramienta).
+- [x] **Stack del tablero**: Python + Streamlit (decidido 2026-11-12).
+- [ ] Dónde se publica la app de Streamlit.
 - [ ] **Modelos finales**: el profe cuestionó el árbol clasificador (redundante con K-Means). Propuesta: regresión (pronóstico) + K-Means (colchón por grupo) + fórmula de cuánto pedir. Falta OK del equipo y del profe.
 - [ ] ¿Se suben los datos al repo o se cargan aparte? (repo público)
 

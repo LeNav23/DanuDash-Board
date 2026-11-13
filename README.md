@@ -26,4 +26,13 @@ Ver [`AVANCE_PROYECTO.md`](AVANCE_PROYECTO.md).
 
 - Rama por tarea: `feat/...`, `fix/...`. PR a `main`.
 - Commits con [Conventional Commits](https://www.conventionalcommits.org/): `feat: add region filter`.
-- Stack: **por definir** (Python confirmado).
+- Stack: **Python + Streamlit**.
+
+## Cómo correrlo
+
+```bash
+pip install -r requirements.txt
+streamlit run app.py
+```
+
+(`app.py` y `requirements.txt` todavía no existen.)
