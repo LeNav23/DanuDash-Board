@@ -17,6 +17,9 @@ env/
 
 # Datos crudos de Danu (confirmar con el equipo antes de subirlos; el repo es público)
 data/raw/
+data/Base_final.xlsx
+data/Base_final.parquet
+data/products.xlsx
 
 # Sistema / editor
 .DS_Store

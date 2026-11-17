@@ -31,8 +31,8 @@ Ver [`AVANCE_PROYECTO.md`](AVANCE_PROYECTO.md).
 ## Cómo correrlo
 
 ```bash
-pip install -r requirements.txt
-streamlit run app.py
+python -m pip install -r requirements.txt
+python -m streamlit run app.py
 ```
 
-(`app.py` y `requirements.txt` todavía no existen.)
+Carga `Base_final.xlsx` desde **Archivos de datos** en la barra lateral o coloca una copia local en `data/Base_final.xlsx`.
