@@ -23,8 +23,11 @@ from data_utils import (prepare_data,subset,descriptive_kpis,region_rotation,sub
 
 st.set_page_config(page_title='DanuStore · Inventario y compras',page_icon='📦',layout='wide',initial_sidebar_state='expanded')
 BASE=Path(__file__).resolve().parent
-DEFAULT_BOOK=BASE/'data'/'Base_final.xlsx'
-DEFAULT_BOOK_SHA256='0825dd11fb572fb36a566f2a16343c3d2761017861b44e66260a5fb7751a687a'
+DEFAULT_BOOKS=('Base_final_v2.xlsx', 'Base_final.xlsx')
+BOOK_SNAPSHOT_HASHES={
+    'Base_final_v2.xlsx': '75860ab833a29cccc68cf9ed8dc50c4f4f67f6e2ea0d415ef3eb3f5762013853',
+    'Base_final.xlsx': '0825dd11fb572fb36a566f2a16343c3d2761017861b44e66260a5fb7751a687a',
+}
 BLUE='#75A4FF'; INK='#E6EEFA'; MUTED='#A9B7CC'; PURPLE='#BA9AFF'
 
 st.markdown('''<style>
@@ -65,10 +68,10 @@ def read_book(buf:bytes):
     return prepare_data(pd.read_excel(BytesIO(buf)))
 
 @st.cache_data(show_spinner=False)
-def load_default(book_version: tuple[int, int]):
-    workbook = DEFAULT_BOOK.read_bytes()
-    snapshot = DEFAULT_BOOK.with_suffix('.parquet')
-    if snapshot.is_file() and sha256(workbook).hexdigest() == DEFAULT_BOOK_SHA256:
+def load_default(book_path: Path, book_version: tuple[int, int]):
+    workbook = book_path.read_bytes()
+    snapshot = book_path.with_suffix('.parquet')
+    if snapshot.is_file() and sha256(workbook).hexdigest() == BOOK_SNAPSHOT_HASHES.get(book_path.name):
         return prepare_data(pd.read_parquet(snapshot))
     return read_book(workbook)
 
@@ -136,18 +139,22 @@ with st.sidebar:
     st.divider()
     with st.expander('Archivos de datos',expanded=False):
         base_file=st.file_uploader('Base de ventas e inventario (.xlsx)',type=['xlsx'],key='base')
-        st.caption('Por defecto se carga Base_final.xlsx incluida en el proyecto.')
+        st.caption('Se acepta Base_final_v2.xlsx o Base_final.xlsx.')
         forecast_file=st.file_uploader('Forecast de ML (.csv) · opcional',type=['csv'],key='forecast')
         st.caption('Columnas: product_id, region, year, mes_num, forecast_units.')
     try:
         if base_file is not None:
+            source_name=base_file.name
             df=read_book(base_file.getvalue())
-        elif not DEFAULT_BOOK.is_file():
-            st.info('Carga el archivo Base_final.xlsx desde la sección Archivos de datos de la barra lateral.')
-            st.stop()
         else:
-            book_stat=DEFAULT_BOOK.stat()
-            df=load_default((book_stat.st_mtime_ns, book_stat.st_size))
+            data_dir=BASE/'data'
+            book_path=next((data_dir/name for name in DEFAULT_BOOKS if (data_dir/name).is_file()), None)
+            if book_path is None:
+                st.info('Carga Base_final_v2.xlsx o Base_final.xlsx desde la sección Archivos de datos.')
+                st.stop()
+            source_name=book_path.name
+            book_stat=book_path.stat()
+            df=load_default(book_path, (book_stat.st_mtime_ns, book_stat.st_size))
     except Exception as exc:
         st.error(f'No se pudo cargar la base: {exc}')
         st.stop()
@@ -184,7 +191,7 @@ with st.sidebar:
             if k in st.session_state: del st.session_state[k]
         st.rerun()
     st.divider()
-    st.caption('**Fuente:** Base_final.xlsx · 130 productos × 7 regiones × 24 meses (según base original).')
+    st.caption(f'**Fuente:** {source_name}')
     st.caption('Los indicadores sobre stock se calculan sobre registros mensuales; no equivalen necesariamente a existencias únicas del año.')
 
 regions=None if region=='Todas las regiones' else [region]

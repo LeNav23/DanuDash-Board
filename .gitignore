@@ -19,6 +19,8 @@ env/
 data/raw/
 data/Base_final.xlsx
 data/Base_final.parquet
+data/Base_final_v2.xlsx
+data/Base_final_v2.parquet
 data/products.xlsx
 
 # Sistema / editor

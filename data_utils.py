@@ -11,6 +11,8 @@ CATS_ES = {'Fitness Wear':'Deportiva','Casual Wear':'Casual','Accessories':'Acce
 
 
 def prepare_data(df: pd.DataFrame) -> pd.DataFrame:
+    if 'units_sold' not in df.columns and 'units_sold_total' in df.columns:
+        df = df.rename(columns={'units_sold_total': 'units_sold'})
     required = {'product_id','region','year','units_sold','stock','product_name','category','subcategory','static_price'}
     missing = required-set(df.columns)
     if missing: raise ValueError('La base no contiene estas columnas: '+ ', '.join(sorted(missing)))
