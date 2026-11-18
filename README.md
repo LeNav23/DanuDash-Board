@@ -35,4 +35,6 @@ python -m pip install -r requirements.txt
 python -m streamlit run app.py
 ```
 
-Carga `Base_final.xlsx` desde **Archivos de datos** en la barra lateral o coloca una copia local en `data/Base_final.xlsx`.
+Carga `Base_final_v2.xlsx` desde **Archivos de datos** en la barra lateral o coloca una copia local en `data/Base_final_v2.xlsx`. También se admite `Base_final.xlsx`. Si ambas versiones están en la carpeta local, se abre la v2 por defecto.
+
+Con la v2, los indicadores de ventas y el pronóstico usan `units_sold_total` como unidades vendidas por producto, región y mes, la misma columna que usa la base para calcular la rotación y el inventario sin vender.
