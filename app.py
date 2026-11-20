@@ -210,6 +210,13 @@ def delta_html(value, unit='%', good_when_up=True, suffix=''):
     return f'<span class="{cls}">{arrow} {abs(value):.1f}{unit}</span> <span class="kpi-muted">{suffix}</span>'
 
 
+def big_delta(v, good_when_up=True):
+    """Número grande de cambio con flecha y color (verde = bueno para el negocio)."""
+    if v is None: return '<span class="kpi-muted">—</span>'
+    cls='kpi-good' if (v>0)==good_when_up else 'kpi-bad'
+    return f'<span class="{cls}">{"▲" if v>0 else "▼"} {abs(v):.1f}%</span>'
+
+
 def kpi_card(label, unit, value_html, compare_html, note, tip):
     return (f'<div class="kpi" title="{tip}"><div class="kpi-label">{label}<span class="kpi-unit">{unit}</span></div>'
             f'<div class="kpi-value">{value_html}</div><div class="kpi-compare">{compare_html}</div></div>')
@@ -222,11 +229,6 @@ def render_kpi_cards(k):
     y,last=k['year'],k['last']
     mlast,mprev=MONTH_NAMES[last],MONTH_NAMES[k['prev_m']]
     period='todo el año' if len(k['months'])==12 else ', '.join(MONTH_NAMES[m] for m in k['months']) if len(k['months'])<=3 else f'{len(k["months"])} meses'
-
-    def big_delta(v, good_when_up=True):
-        if v is None: return '<span class="kpi-muted">—</span>'
-        cls='kpi-good' if (v>0)==good_when_up else 'kpi-bad'
-        return f'<span class="{cls}">{"▲" if v>0 else "▼"} {abs(v):.1f}%</span>'
 
     def uds(n):  # menos de 1 millón con comas; arriba de eso abreviado para que quepa
         return f'{n/1e6:.2f} M' if n>=1e6 else f'{n:,.0f}'
@@ -444,12 +446,29 @@ else:
     sales_current=float(universe[(universe.year==cut_year)&(universe.mes_num==current_month)].units_sold.sum())
     sales_prev=float(universe[(universe.year==cut_year-1)&(universe.mes_num==current_month)].units_sold.sum())
     growth=(sales_current/sales_prev-1)*100 if sales_prev else None
-    k1,k2,k3=st.columns([1,1,1.05])
-    with k1:st.metric('Δ VENTAS PERÍODO VS AÑO PREVIO',f'{growth:+.1f}%' if growth is not None else '—')
-    with k2:st.metric('VENTAS ESPERADAS',compact(plan.forecast_units.sum()),help='Pronóstico de ventas en unidades para el mes siguiente al corte.')
-    with k3:
-        over=100*plan.excess_units.sum()/plan.stock_actual.sum() if plan.stock_actual.sum() else 0
-        st.metric('SOBRESTOCK ESTIMADO',f'{over:.1f}%',help='Unidades por encima del stock ideal / stock registrado en el último mes disponible por producto y región.')
+    # Ventas esperadas contra lo que se vendió ese mismo mes el año pasado.
+    forecast_total=float(plan.forecast_units.sum())
+    sales_target_ly=float(universe[(universe.year==fy-1)&(universe.mes_num==fm)].units_sold.sum())
+    forecast_vs_ly=(forecast_total/sales_target_ly-1)*100 if sales_target_ly else None
+    # Sobrestock = unidades arriba del stock ideal ÷ stock actual; se compara con el corte del mes anterior.
+    def overstock_pct(p): return 100*p.excess_units.sum()/p.stock_actual.sum() if len(p) and p.stock_actual.sum() else None
+    over=overstock_pct(plan)
+    prev_cut=(cut_year,current_month-1) if current_month>1 else (cut_year-1,12)
+    try: over_prev=overstock_pct(build_purchase_plan(universe,*prev_cut,service,forecast_external)[0])
+    except Exception: over_prev=None
+    mcut=MONTH_NAMES[current_month]
+    cards=[
+        kpi_card('Ventas vs año anterior','% unidades',big_delta(growth),
+                 f'{mcut} {cut_year}: {sales_current:,.0f} vs {mcut} {cut_year-1}: {sales_prev:,.0f} uds' if sales_prev else f'Sin datos de {cut_year-1}',
+                 '','Ventas del mes de corte contra el mismo mes del año anterior. Verde = vendimos más.'),
+        kpi_card('Ventas esperadas',f'uds en {MONTH_NAMES[fm]} {fy}',f'{forecast_total:,.0f}',
+                 delta_html(forecast_vs_ly,'%',True,f'vs {MONTH_NAMES[fm]} {fy-1} real'),
+                 '','Pronóstico de unidades para el mes siguiente al corte, contra lo vendido ese mes el año pasado.'),
+        kpi_card('Sobrestock estimado','% del stock arriba del ideal',f'{over:.1f}%' if over is not None else '—',
+                 delta_html(over-over_prev if over is not None and over_prev is not None else None,' pts',False,'vs corte anterior'),
+                 '','Unidades arriba del stock ideal ÷ stock actual. Más alto = peor (rojo si sube).'),
+    ]
+    st.markdown('<div class="kpi-row" style="grid-template-columns:repeat(3,minmax(0,1fr))">'+''.join(cards)+'</div>',unsafe_allow_html=True)
 
     with st.container(border=True):
         st.subheader('Comparación ventas contra forecast por mes')
@@ -476,6 +495,7 @@ else:
     with st.container(border=True):
         coltitle,download=st.columns([3,1],vertical_alignment='center')
         with coltitle:st.subheader('Plan por producto y región')
+        plan['region']=plan.region.map(lambda r:REGION_SHORT.get(r,r))  # nombres cortos para que quepan todas las columnas
         shown=plan.rename(columns={'product_name':'Producto','region':'Región','subcategory':'Subcategoría','forecast_units':'Forecast de ventas',
                                    'stock_ideal':'Stock ideal','stock_actual':'Stock actual','overstock_pct':'% Sobrestock',
                                    'days_inventory':'Días de inventario','shortfall':'Unidades a comprar','excess_units':'Excedente estimado'})
@@ -484,5 +504,15 @@ else:
             st.download_button('Descargar plan CSV',data=shown[cols].to_csv(index=False).encode('utf-8-sig'),
                                file_name=f'DanuStore_plan_{fy}_{fm:02d}.csv',mime='text/csv',use_container_width=True)
         st.dataframe(shown[cols].sort_values(['Excedente estimado','% Sobrestock'],ascending=False),hide_index=True,use_container_width=True,height=560,
-          column_config={'% Sobrestock':st.column_config.ProgressColumn('% Sobrestock',format='%.1f%%',min_value=0,max_value=100),
-                         'Días de inventario':st.column_config.NumberColumn('Días de inventario',format='%.0f')})
+          # Anchos fijos y encabezados cortos para que se vean las 11 columnas sin scroll de lado.
+          column_config={'Producto':st.column_config.TextColumn('Producto',width=135),
+                         'Región':st.column_config.TextColumn('Región',width=68),
+                         'Subcategoría':st.column_config.TextColumn('Subcat.',width=72),
+                         'Forecast de ventas':st.column_config.NumberColumn('Forecast',format='localized',width=72),
+                         'Stock ideal':st.column_config.NumberColumn('Stock ideal',format='localized',width=78),
+                         'Stock actual':st.column_config.NumberColumn('Stock actual',format='localized',width=82),
+                         '% Sobrestock':st.column_config.ProgressColumn('% Sobrestock',format='%.0f%%',min_value=0,max_value=100,width=100),
+                         'Días de inventario':st.column_config.NumberColumn('Días inv.',format='%.0f',width=62),
+                         'Unidades a comprar':st.column_config.NumberColumn('A comprar',format='localized',width=72),
+                         'Excedente estimado':st.column_config.NumberColumn('Excedente',format='localized',width=76),
+                         'Acción':st.column_config.TextColumn('Acción',width=105)})
