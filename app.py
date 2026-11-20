@@ -76,8 +76,8 @@ footer {visibility:hidden;}
 html.side-pop [data-testid="stPopoverBody"] {transform:translate(var(--pop-x),var(--pop-y)) !important;}
 [data-testid="stPopoverBody"] [data-testid="stButtonGroup"] [role="toolbar"] button {width:100%;justify-content:flex-start;min-height:30px;padding:2px 12px;}
 .notice{padding:0.55rem .8rem;background:#172235;border:1px solid #2B3B54;border-radius:8px;color:#C5D4EB;font-size:.84rem;}
-.sidebrand{font-size:1.1rem;font-weight:800;border-bottom:1px solid #2B3B54;padding:0 0 10px;margin-bottom:8px;}
-.small-caption{font-size:.92rem;color:#A9B7CC;margin:0 0 6px;}
+.sidebrand{font-size:1.1rem;font-weight:800;border-bottom:1px solid #2B3B54;padding:0 0 10px;margin:-1.75rem 2.5rem 8px 0;} /* sube a la fila del botón «« (que está a la derecha) */
+.small-caption{font-size:.92rem;color:#A9B7CC;margin:0 0 18px;}
 </style>''',unsafe_allow_html=True)
 
 
