@@ -370,27 +370,28 @@ if page=='Ventas e inventario':
     a,b=st.columns(2,gap='small')
     with a:
         with st.container(border=True):
-            st.subheader('Productos que vendieron todo su stock')
+            st.subheader('Top 10 que vendieron todo su stock')
             sold=sold_out_products(data)
             n_months=int(data.groupby(['year','mes_num']).ngroups)
             n_all=int((sold.months_sold_out==n_months).sum())
             st.caption(f'{n_all:,} producto-región vendieron todo su stock en los {n_months} meses elegidos' if n_months>1
                        else f'{len(sold):,} producto-región vendieron todo su stock en el mes elegido')
+            sold=sold.head(10)  # top 10; el total va en la nota de arriba
             sold=sold.assign(Región=sold.region.map(lambda r:REGION_SHORT.get(r,r)))
             sold=sold.rename(columns={'product_name':'Producto','months_sold_out':'Meses con todo vendido','units_sold':'Vendidas'})
-            st.dataframe(sold[['Producto','Región','Meses con todo vendido','Vendidas']],hide_index=True,use_container_width=True,height=330,
+            st.dataframe(sold[['Producto','Región','Meses con todo vendido','Vendidas']],hide_index=True,use_container_width=True,height=388,
                 column_config={'Producto':st.column_config.TextColumn('Producto',width=150),
                                'Región':st.column_config.TextColumn('Región',width=72),
                                'Meses con todo vendido':st.column_config.ProgressColumn('Meses al 100%',min_value=0,max_value=n_months,format=f'%d de {n_months}',width=130),
                                'Vendidas':st.column_config.NumberColumn('Vendidas (uds)',format='localized',width=95)})
     with b:
         with st.container(border=True):
-            st.subheader('Productos con menor rotación')
-            low=low_rotation_products(data)
+            st.subheader('Top 10 con menor rotación')
+            low=low_rotation_products(data,n=10)
             last_lbl=f'{MONTH_NAMES[int(data.mes_num[data.date==data.date.max()].iloc[0])]} {data.date.max().year}'
             st.caption(f'Sin vender = piezas (uds) que quedaron en {last_lbl}')
             low=low.rename(columns={'product_name':'Producto','subcategory':'Subcategoría','rotation':'% de rotación','unsold':'Sin vender (uds)'})
-            st.dataframe(low[['Producto','Subcategoría','% de rotación','Sin vender (uds)']],hide_index=True,use_container_width=True,height=330,
+            st.dataframe(low[['Producto','Subcategoría','% de rotación','Sin vender (uds)']],hide_index=True,use_container_width=True,height=388,
                 column_config={'Producto':st.column_config.TextColumn('Producto',width=150),
                                'Subcategoría':st.column_config.TextColumn('Subcat.',width=72),
                                '% de rotación':st.column_config.ProgressColumn('Rotación',min_value=0,max_value=100,format='%.0f%%',width=80),
