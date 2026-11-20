@@ -18,9 +18,10 @@ import plotly.graph_objects as go
 import streamlit as st
 import streamlit.components.v1 as components
 
-from data_utils import (prepare_data,subset,descriptive_kpis,region_rotation,subcategory_rotation,
-                        low_rotation_products,compare_year_growth,build_purchase_plan,
-                        action_for_product,MONTH_NAMES,next_month,cut_history,REGION_SHORT,REGION_ORDER)
+from data_utils import (prepare_data,subset,region_rotation,subcategory_rotation,
+                        low_rotation_products,build_purchase_plan,
+                        action_for_product,MONTH_NAMES,next_month,cut_history,REGION_SHORT,REGION_ORDER,
+                        kpi_cards)
 
 st.set_page_config(page_title='DanuStore · Inventario y compras',page_icon='📦',layout='wide',initial_sidebar_state='expanded')
 BASE=Path(__file__).resolve().parent
@@ -50,6 +51,19 @@ h3 {font-size:1.05rem !important;font-weight:700 !important;}
 [data-testid="stSelectbox"] label,[data-testid="stMultiSelect"] label {font-size:.75rem;font-weight:700;letter-spacing:.025em;}
 [data-testid="stRadio"] label {font-size:.75rem;font-weight:700;}
 footer {visibility:hidden;}
+/* Tarjetas KPI. Colores cálidos y suaves: verde salvia = bueno, terracota = malo. */
+.kpi-row {display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:.5rem;}
+.kpi {background:#172235;border:1px solid #2B3B54;border-radius:9px;padding:9px 14px;}
+.kpi-compare,.kpi-note {white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.kpi-label {font-size:.72rem;color:#A9B7CC;letter-spacing:.055em;font-weight:700;text-transform:uppercase;}
+.kpi-unit {display:block;font-weight:500;text-transform:none;letter-spacing:0;opacity:.8;}
+.kpi-value {font-size:1.9rem;font-weight:800;line-height:1.25;margin:2px 0;}
+.kpi-compare {font-size:.84rem;}
+.kpi-note {font-size:.74rem;color:#A9B7CC;margin-top:2px;}
+.kpi-good {color:#86BF8F;font-weight:700;}
+.kpi-bad {color:#E3836F;font-weight:700;}
+.kpi-muted {color:#A9B7CC;}
+@media (max-width:900px){.kpi-row{grid-template-columns:repeat(2,minmax(0,1fr));}}
 /* Ventanitas de filtros: lista vertical angosta, como un menú, en vez de una fila larga. */
 [data-testid="stPopoverBody"]:has([data-testid="stButtonGroup"]) {width:230px !important;min-width:230px !important;max-height:70vh;overflow-y:auto;}
 [data-testid="stPopoverBody"] [data-testid="stElementContainer"]:has([data-testid="stButtonGroup"]),
@@ -165,6 +179,59 @@ def chart_subcats(d):
                       hovertemplate='%{label}<br>Rotación: %{customdata[0]:.1f}%<extra></extra>')
     fig.update_layout(coloraxis_showscale=False)
     return style_fig(fig,height=265,margins=dict(l=0,r=0,t=5,b=0))
+
+
+def delta_html(value, unit='%', good_when_up=True, suffix=''):
+    """Flecha + número con color: verde si es bueno para el negocio, rojo si es malo."""
+    if value is None: return f'<span class="kpi-muted">Sin dato para comparar</span>'
+    if abs(value)<0.05: return f'<span class="kpi-muted">● Sin cambio {suffix}</span>'
+    up=value>0
+    cls='kpi-good' if up==good_when_up else 'kpi-bad'
+    arrow='▲' if up else '▼'
+    return f'<span class="{cls}">{arrow} {abs(value):.1f}{unit}</span> <span class="kpi-muted">{suffix}</span>'
+
+
+def kpi_card(label, unit, value_html, compare_html, note, tip):
+    return (f'<div class="kpi" title="{tip}"><div class="kpi-label">{label}<span class="kpi-unit">{unit}</span></div>'
+            f'<div class="kpi-value">{value_html}</div><div class="kpi-compare">{compare_html}</div>'
+            f'<div class="kpi-note">{note}</div></div>')
+
+
+def render_kpi_cards(k):
+    """4 tarjetas. En cada una: valor, comparación con color y una frase corta para ventas."""
+    if k is None:
+        st.warning('No hay datos para el año y los meses elegidos.'); return
+    y,last=k['year'],k['last']
+    mlast,mprev=MONTH_NAMES[last],MONTH_NAMES[k['prev_m']]
+    period='todo el año' if len(k['months'])==12 else ', '.join(MONTH_NAMES[m] for m in k['months']) if len(k['months'])<=3 else f'{len(k["months"])} meses'
+
+    def big_delta(v, good_when_up=True):
+        if v is None: return '<span class="kpi-muted">—</span>'
+        cls='kpi-good' if (v>0)==good_when_up else 'kpi-bad'
+        return f'<span class="{cls}">{"▲" if v>0 else "▼"} {abs(v):.1f}%</span>'
+
+    def uds(n):  # menos de 1 millón con comas; arriba de eso abreviado para que quepa
+        return f'{n/1e6:.2f} M' if n>=1e6 else f'{n:,.0f}'
+
+    cards=[
+        kpi_card('Ventas vs año anterior','% unidades',big_delta(k['yoy']),
+                 f'{uds(k["sales"])} vs {uds(k["sales_ly"])} uds ({y-1})' if k['sales_ly'] else f'{uds(k["sales"])} uds',
+                 period.capitalize() if k['yoy'] is not None else f'Sin datos de {y-1}',
+                 'Unidades vendidas del periodo contra los mismos meses del año anterior. Verde = vendimos más.'),
+        kpi_card('Ventas vs mes anterior','% unidades',big_delta(k['mom']),
+                 f'{mlast}: {uds(k["sales_last"])} vs {mprev}: {uds(k["sales_prev_month"])} uds' if k['sales_prev_month'] else f'{mlast}: {uds(k["sales_last"])} uds',
+                 f'{mlast} {y} vs {mprev} {k["prev_y"]}' if k['mom'] is not None else 'Sin mes anterior en la base',
+                 'Unidades vendidas del último mes elegido contra el mes inmediato anterior. Verde = vendimos más.'),
+        kpi_card('Rotación de inventario','% vendido',f'{k["rotation"]:.1f}%',
+                 delta_html(k['rotation_delta'],' pts',True,f'vs {y-1}'),
+                 f'De cada 100 piezas se vendieron {k["rotation"]:.0f}',
+                 'Unidades vendidas ÷ stock del periodo. Más alto = el inventario se mueve más rápido.'),
+        kpi_card('Inventario sin vender','$ precio de lista',compact(k['unsold'],True),
+                 delta_html(k['unsold_change'],'%',False,f'vs {mlast} {y-1}'),
+                 f'Foto de {mlast} {y}',
+                 'Foto del último mes elegido: (stock − vendidas) × precio de lista. No es costo. Más alto = peor (rojo si sube).'),
+    ]
+    st.markdown('<div class="kpi-row">'+''.join(cards)+'</div>',unsafe_allow_html=True)
 
 
 def title_bar(title,subtitle):
@@ -287,13 +354,8 @@ if page=='Ventas e inventario':
     data=subset(df,sel_years,regions,cats,subs,months)
     title_bar('Ventas e inventario','Análisis descriptivo de ventas, inventario y rotación por región y producto')
     if data.empty:st.warning('No hay registros para los filtros seleccionados.');st.stop()
-    k=descriptive_kpis(data)
-    growth=compare_year_growth(subset(df,[max(sel_years),max(sel_years)-1],regions,cats,subs,months),max(sel_years)) if year_choice!='Ambos' else None
-    c1,c2,c3,c4=st.columns(4)
-    with c1:st.metric('Δ VENTAS VS AÑO PREVIO',f'{growth:+.1f}%' if growth is not None else '—',help='Variación de unidades vendidas respecto al período equivalente del año anterior.')
-    with c2:st.metric('ROTACIÓN DE INVENTARIO',f'{k["rotation"]:.1f}%',help='Unidades vendidas / stock registrado de los períodos seleccionados.')
-    with c3:st.metric('SOBRESTOCK',f'{k["overstock"]:.1f}%',help='Máximo(stock - unidades esperadas, 0), dividido por el stock registrado. Es un indicador orientativo.')
-    with c4:st.metric('INVENTARIO SIN VENDER',compact(k['unsold_value'],True),help='Valor a precio de lista de máx(stock - unidades vendidas, 0); NO es costo de inventario.')
+    k=kpi_cards(subset(df,None,regions,cats,subs),max(sel_years),months)
+    render_kpi_cards(k)
     a,b=st.columns([1,1.05],gap='small')
     with a:
         with st.container(border=True):

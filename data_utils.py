@@ -60,6 +60,54 @@ def descriptive_kpis(d):
             'over_units':over,'unsold':float(unsold.sum()),'unsold_value':value}
 
 
+def _pct_change(cur, prev):
+    return (cur/prev-1)*100 if prev else None
+
+
+def _unsold_value(d):
+    """Valor a precio de lista de lo que quedó sin vender: máx(stock - vendidas, 0) × static_price."""
+    unsold=np.maximum(d.stock.to_numpy()-d.units_sold.to_numpy(),0)
+    return float(np.nansum(unsold*d.static_price.fillna(0).to_numpy()))
+
+
+def kpi_cards(base, year, months=None):
+    """Los 4 KPIs del tablero descriptivo, cada uno con su comparación.
+
+    base   = datos ya filtrados por región/categoría/subcategoría, con TODOS los años y meses
+             (se necesitan el año y el mes anteriores para comparar).
+    year   = año que se analiza (el más reciente elegido).
+    months = meses elegidos; vacío = todo el año. El "mes de corte" es el último elegido.
+    """
+    have=sorted(base.loc[base.year==year,'mes_num'].unique().tolist())
+    ms=[m for m in (months or have) if m in have]
+    if not ms: return None
+    last=max(ms)
+    prev_y,prev_m=(year,last-1) if last>1 else (year-1,12)
+
+    def rows(y,mm): return base[(base.year==y)&(base.mes_num.isin(mm))]
+    cur, cur_ly = rows(year,ms), rows(year-1,ms)
+    lm, pm, lm_ly = rows(year,[last]), rows(prev_y,[prev_m]), rows(year-1,[last])
+
+    sales, sales_ly = float(cur.units_sold.sum()), float(cur_ly.units_sold.sum())
+    s_lm, s_pm = float(lm.units_sold.sum()), float(pm.units_sold.sum())
+    # Rotación = vendidas / stock del periodo (suma de meses), en %.
+    rot = 100*sales/float(cur.stock.sum()) if cur.stock.sum() else None
+    rot_ly = 100*sales_ly/float(cur_ly.stock.sum()) if len(cur_ly) and cur_ly.stock.sum() else None
+    # Inventario sin vender = FOTO del mes de corte (no la suma de meses: contaría la misma pieza varias veces).
+    unsold, unsold_ly = _unsold_value(lm), (_unsold_value(lm_ly) if len(lm_ly) else None)
+    return {
+        'year':year,'months':ms,'last':last,'prev_y':prev_y,'prev_m':prev_m,
+        'sales':sales,'sales_ly':sales_ly if len(cur_ly) else None,
+        'yoy':_pct_change(sales,sales_ly) if len(cur_ly) else None,
+        'sales_last':s_lm,'sales_prev_month':s_pm if len(pm) else None,
+        'mom':_pct_change(s_lm,s_pm) if len(pm) else None,
+        'rotation':rot,'rotation_ly':rot_ly,
+        'rotation_delta':(rot-rot_ly) if rot is not None and rot_ly is not None else None,
+        'unsold':unsold,'unsold_ly':unsold_ly,
+        'unsold_change':_pct_change(unsold,unsold_ly) if unsold_ly else None,
+    }
+
+
 def region_rotation(d):
     r=d.groupby('region',as_index=False)[['units_sold','stock']].sum()
     r['rotation']=np.where(r.stock>0,100*r.units_sold/r.stock,0)
