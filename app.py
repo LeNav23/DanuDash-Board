@@ -193,8 +193,7 @@ def delta_html(value, unit='%', good_when_up=True, suffix=''):
 
 def kpi_card(label, unit, value_html, compare_html, note, tip):
     return (f'<div class="kpi" title="{tip}"><div class="kpi-label">{label}<span class="kpi-unit">{unit}</span></div>'
-            f'<div class="kpi-value">{value_html}</div><div class="kpi-compare">{compare_html}</div>'
-            f'<div class="kpi-note">{note}</div></div>')
+            f'<div class="kpi-value">{value_html}</div><div class="kpi-compare">{compare_html}</div></div>')
 
 
 def render_kpi_cards(k):
