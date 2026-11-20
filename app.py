@@ -379,10 +379,9 @@ if page=='Ventas e inventario':
             sold=sold.head(10)  # top 10; el total va en la nota de arriba
             sold=sold.assign(Región=sold.region.map(lambda r:REGION_SHORT.get(r,r)))
             sold=sold.rename(columns={'product_name':'Producto','months_sold_out':'Meses con todo vendido','units_sold':'Vendidas'})
-            st.dataframe(sold[['Producto','Región','Meses con todo vendido','Vendidas']],hide_index=True,use_container_width=True,height=388,
+            st.dataframe(sold[['Producto','Región','Vendidas']],hide_index=True,use_container_width=True,height=388,
                 column_config={'Producto':st.column_config.TextColumn('Producto',width=150),
                                'Región':st.column_config.TextColumn('Región',width=72),
-                               'Meses con todo vendido':st.column_config.ProgressColumn('Meses al 100%',min_value=0,max_value=n_months,format=f'%d de {n_months}',width=130),
                                'Vendidas':st.column_config.NumberColumn('Vendidas (uds)',format='localized',width=95)})
     with b:
         with st.container(border=True):
