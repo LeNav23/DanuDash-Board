@@ -13,12 +13,13 @@ from hashlib import sha256
 from io import BytesIO
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 import streamlit.components.v1 as components
 
-from data_utils import (prepare_data,subset,region_rotation,subcategory_rotation,
+from data_utils import (prepare_data,subset,region_rotation,sold_out_matrix,
                         low_rotation_products,build_purchase_plan,
                         action_for_product,MONTH_NAMES,next_month,cut_history,REGION_SHORT,REGION_ORDER,
                         kpi_cards,rotation_status,STATUS_LABELS)
@@ -183,18 +184,28 @@ def chart_months(d):
     return style_fig(fig,height=330)
 
 
-def chart_subcats(d):
-    r=subcategory_rotation(d)
-    if r.empty:return empty_fig()
-    fig=go.Figure(go.Treemap(
-        labels=r.subcategory, parents=[''] * len(r), values=r.stock.clip(lower=1),
-        marker=dict(colors=r.rotation, colorscale=['#153A71','#275797','#406CB2']),
-        customdata=r[['rotation']].to_numpy(),
-    ))
-    fig.update_traces(texttemplate='%{label}<br>%{customdata[0]:.1f}%',textfont=dict(size=12),
-                      hovertemplate='%{label}<br>Rotación: %{customdata[0]:.1f}%<extra></extra>')
-    fig.update_layout(coloraxis_showscale=False)
-    return style_fig(fig,height=265,margins=dict(l=0,r=0,t=5,b=0))
+def chart_sold_out(d):
+    """Mapa de calor región × mes: % de productos que vendieron todo su stock."""
+    t=sold_out_matrix(d)
+    if t.empty:return empty_fig()
+    regions=[r for r in REGION_ORDER if r in set(t.region)]
+    months=sorted(t.mes_num.unique())
+    pct=t.pivot(index='region',columns='mes_num',values='pct').reindex(index=regions,columns=months)
+    n=t.pivot(index='region',columns='mes_num',values='n').reindex(index=regions,columns=months)
+    tot=t.pivot(index='region',columns='mes_num',values='total').reindex(index=regions,columns=months)
+    full=[[REGION_SHORT.get(r,r)]*len(months) for r in regions]
+    fig=go.Figure(go.Heatmap(
+        z=pct.values,x=[MONTH_NAMES[m] for m in months],y=[REGION_SHORT.get(r,r) for r in regions],
+        text=pct.round(0).values,texttemplate='%{text:.0f}%',textfont=dict(size=10),
+        customdata=np.dstack([n.values,tot.values]),
+        # Escala cálida: oscuro (casi nunca) → ámbar → terracota (muy seguido).
+        colorscale=[[0,'#1C2940'],[.35,'#6B5A45'],[.7,'#D4A762'],[1,'#D9826F']],zmin=0,zmax=max(60,float(t.pct.max())),
+        colorbar=dict(title=dict(text='%',side='top'),thickness=10,ticksuffix='%',len=.9),
+        hovertemplate='%{y} · %{x}: %{z:.0f}% de los productos vendieron todo su stock<br>(%{customdata[0]:.0f} de %{customdata[1]:.0f})<extra></extra>',
+        xgap=2,ygap=2))
+    fig.update_yaxes(autorange='reversed',gridcolor='rgba(0,0,0,0)')
+    return style_fig(fig,height=300,margins=dict(l=8,r=8,t=8,b=8))
+
 
 
 def delta_html(value, unit='%', good_when_up=True, suffix=''):
@@ -380,19 +391,24 @@ if page=='Ventas e inventario':
         with st.container(border=True):
             st.subheader('Comparación ventas contra stock por mes')
             st.plotly_chart(chart_months(data),use_container_width=True,config={'displayModeBar':False})
-    a,b=st.columns([.85,1.4],gap='small')
+    a,b=st.columns([1.25,1],gap='small')
     with a:
         with st.container(border=True):
-            st.subheader('Rotación por subcategoría')
-            st.plotly_chart(chart_subcats(data),use_container_width=True,config={'displayModeBar':False})
+            st.subheader('¿Dónde y cuándo se vendió todo el stock?')
+            st.caption('% de productos que vendieron todo su stock en el mes')
+            st.plotly_chart(chart_sold_out(data),use_container_width=True,config={'displayModeBar':False})
     with b:
         with st.container(border=True):
             st.subheader('Productos con menor rotación')
             low=low_rotation_products(data)
-            low=low.rename(columns={'product_name':'Producto','subcategory':'Subcategoría','rotation':'% de rotación','unsold':'Sin vender'})
-            st.dataframe(low[['Producto','Subcategoría','% de rotación','Sin vender']],hide_index=True,use_container_width=True,height=365,
-                column_config={'% de rotación':st.column_config.ProgressColumn('% de rotación',min_value=0,max_value=100,format='%.1f%%'),
-                               'Sin vender':st.column_config.NumberColumn('Sin vender',format='%d')})
+            last_lbl=f'{MONTH_NAMES[int(data.mes_num[data.date==data.date.max()].iloc[0])]} {data.date.max().year}'
+            st.caption(f'Sin vender = piezas (uds) que quedaron en {last_lbl}')
+            low=low.rename(columns={'product_name':'Producto','subcategory':'Subcategoría','rotation':'% de rotación','unsold':'Sin vender (uds)'})
+            st.dataframe(low[['Producto','Subcategoría','% de rotación','Sin vender (uds)']],hide_index=True,use_container_width=True,height=330,
+                column_config={'Producto':st.column_config.TextColumn('Producto',width=150),
+                               'Subcategoría':st.column_config.TextColumn('Subcat.',width=72),
+                               '% de rotación':st.column_config.ProgressColumn('Rotación',min_value=0,max_value=100,format='%.0f%%',width=80),
+                               'Sin vender (uds)':st.column_config.NumberColumn('Sin vender',format='localized',width=78)})
     st.caption('Nota: el stock se registra cada mes. Al seleccionar varios meses, los totales corresponden a la suma de observaciones mensuales, no a un inventario físico único.')
 else:
     cut_year=max(sel_years)

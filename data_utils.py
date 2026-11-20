@@ -133,10 +133,33 @@ def subcategory_rotation(d):
 
 
 def low_rotation_products(d,n=8):
-    r=d.groupby(['product_id','product_name','subcategory'],as_index=False)[['units_sold','stock']].sum()
+    """Productos que menos rotan en el periodo.
+
+    rotation = vendidas / stock del periodo (suma de meses).
+    unsold   = piezas sin vender en la FOTO del último mes del periodo (igual que el KPI;
+               sumar meses contaría la misma pieza varias veces).
+    """
+    keys=['product_id','product_name','subcategory']
+    r=d.groupby(keys,as_index=False)[['units_sold','stock']].sum()
     r['rotation']=np.where(r.stock>0,100*r.units_sold/r.stock,0)
-    r['unsold']=np.maximum(r.stock-r.units_sold,0)
+    last=d[d.date==d.date.max()]
+    snap=last.assign(unsold=np.maximum(last.stock-last.units_sold,0)).groupby(keys,as_index=False)['unsold'].sum()
+    r=r.merge(snap,on=keys,how='left').fillna({'unsold':0})
     return r.sort_values(['rotation','unsold'],ascending=[True,False]).head(n)
+
+
+def sold_out_matrix(d):
+    """% de productos que vendieron TODO su stock, por región × mes.
+
+    Una fila de la base (producto-región-mes) "vendió todo" si units_sold >= stock.
+    No decimos "agotado": no sabemos si hubo más demanda que no se pudo atender.
+    Con varios años elegidos, cada celda junta los meses iguales de ambos años.
+    """
+    if d.empty: return pd.DataFrame(columns=['region','mes_num','pct','n','total'])
+    t=d.assign(all_sold=d.units_sold>=d.stock).groupby(['region','mes_num'],as_index=False).agg(
+        n=('all_sold','sum'),total=('all_sold','size'))
+    t['pct']=100*t.n/t.total
+    return t
 
 
 def compare_year_growth(d, year:int):
