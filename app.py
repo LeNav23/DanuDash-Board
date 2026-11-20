@@ -178,25 +178,36 @@ with st.sidebar:
     page=st.radio('TABLERO',['Ventas e inventario','Ventas esperadas e inventario a pedir'],label_visibility='collapsed')
     st.divider()
 
+    # Cada filtro es un botón que abre una ventanita (popover) con chips; así todos
+    # los filtros caben en la barra sin scroll. El botón muestra lo que está elegido.
+    def picked(key, fmt=str, todos='Todas'):
+        sel=st.session_state.get(key) or []
+        if not sel: return todos
+        if len(sel)<=2: return ', '.join(fmt(s) for s in sel)
+        return f'{len(sel)} elegidas'
+
+    def multi_filter(title, options, key, fmt=str, todos='Todas'):
+        # Chips de selección múltiple; lista vacía = sin filtro.
+        with st.popover(f'{title}: {picked(key,fmt,todos)}',use_container_width=True):
+            return st.pills(title,options,selection_mode='multi',key=key,format_func=fmt,label_visibility='collapsed')
+
     all_years=sorted(df.year.unique().tolist())
     year_options=[str(y) for y in all_years]+['Ambos']
-    year_choice=st.segmented_control('AÑO',year_options,default=year_options[-2],key='year') or year_options[-2]
+    st.session_state.setdefault('year',year_options[-2])
+    with st.popover(f'Año: {st.session_state["year"] or year_options[-2]}',use_container_width=True):
+        year_choice=st.segmented_control('Año',year_options,key='year',label_visibility='collapsed') or year_options[-2]
     sel_years=all_years if year_choice=='Ambos' else [int(year_choice)]
-    st.caption('Toca para elegir uno o varios. Sin selección = todos.')
-    # Chips de selección múltiple; lista vacía = sin filtro.
     region_options=sorted(df.region.unique().tolist(),key=lambda r:REGION_ORDER.index(r) if r in REGION_ORDER else 99)
-    sel_regions=st.pills('REGIÓN',region_options,selection_mode='multi',key='region',
-                         format_func=lambda r:REGION_SHORT.get(r,r))
+    sel_regions=multi_filter('Región',region_options,'region',fmt=lambda r:REGION_SHORT.get(r,r))
     categories=sorted(df.category_es.unique().tolist())
-    sel_cats=st.pills('CATEGORÍA',categories,selection_mode='multi',key='cat')
+    sel_cats=multi_filter('Categoría',categories,'cat')
     visible_subcats=sorted(df[df.category_es.isin(sel_cats)].subcategory.unique().tolist() if sel_cats else df.subcategory.unique().tolist())
     # Si se quita una categoría, se limpian sus subcategorías para no dejar filtros escondidos.
     if 'subcat' in st.session_state:
         st.session_state['subcat']=[s for s in st.session_state['subcat'] if s in visible_subcats]
-    sel_subcats=st.pills('SUBCATEGORÍA',visible_subcats,selection_mode='multi',key='subcat')
+    sel_subcats=multi_filter('Subcategoría',visible_subcats,'subcat')
     if page=='Ventas e inventario':
-        sel_months=st.pills('MES',list(range(1,13)),selection_mode='multi',key='month_des',
-                            format_func=lambda m:MONTH_NAMES[m])
+        sel_months=multi_filter('Mes',list(range(1,13)),'month_des',fmt=lambda m:MONTH_NAMES[m],todos='Todos')
     else:
         # El corte temporal es explícito para no mostrar el futuro al modelo.
         cut_year=max(sel_years)
