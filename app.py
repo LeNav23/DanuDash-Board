@@ -16,6 +16,7 @@ from pathlib import Path
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
+import streamlit.components.v1 as components
 
 from data_utils import (prepare_data,subset,descriptive_kpis,region_rotation,subcategory_rotation,
                         low_rotation_products,compare_year_growth,build_purchase_plan,
@@ -54,11 +55,44 @@ footer {visibility:hidden;}
 [data-testid="stPopoverBody"] [data-testid="stElementContainer"]:has([data-testid="stButtonGroup"]),
 [data-testid="stPopoverBody"] [data-testid="stButtonGroup"] {width:100% !important;}
 [data-testid="stPopoverBody"] [data-testid="stButtonGroup"] [role="toolbar"] {flex-direction:column;flex-wrap:nowrap;align-items:stretch;gap:4px;width:100%;max-width:none !important;}
+/* El script de abajo (SIDE_POPOVER_JS) pone la clase side-pop y la posición junto al botón. */
+html.side-pop [data-testid="stPopoverBody"] {transform:translate(var(--pop-x),var(--pop-y)) !important;}
 [data-testid="stPopoverBody"] [data-testid="stButtonGroup"] [role="toolbar"] button {width:100%;justify-content:flex-start;min-height:30px;padding:2px 12px;}
 .notice{padding:0.55rem .8rem;background:#172235;border:1px solid #2B3B54;border-radius:8px;color:#C5D4EB;font-size:.84rem;}
 .sidebrand{font-size:1.1rem;font-weight:800;border-bottom:1px solid #2B3B54;padding:6px 0 15px;margin-bottom:8px;}
 .small-caption{font-size:.75rem;color:#A9B7CC;border-bottom:1px;padding-bottom:4px;margin-bottom:8px;}
 </style>''',unsafe_allow_html=True)
+
+
+# Streamlit abre los popovers debajo del botón. Este script (se inyecta una sola vez en la
+# página) los mueve a la DERECHA del botón abierto, como menú lateral, para no tapar los
+# demás filtros. Si no cabe hacia abajo, lo sube lo necesario para que no se corte.
+SIDE_POPOVER_JS='''<script>
+const doc = window.parent.document;
+if (!doc.getElementById('side-pop-script')) {
+  const s = doc.createElement('script');
+  s.id = 'side-pop-script';
+  s.textContent = `
+    (function(){
+      const root = document.documentElement;
+      function place(){
+        const btn = document.querySelector('[data-testid="stPopover"] button[aria-expanded="true"]');
+        const body = document.querySelector('[data-testid="stPopoverBody"]');
+        if (!btn || !body) { root.classList.remove('side-pop'); return; }
+        const r = btn.getBoundingClientRect();
+        const h = body.offsetHeight;
+        const y = Math.max(8, Math.min(r.top, window.innerHeight - h - 8));
+        root.style.setProperty('--pop-x', (r.right + 12) + 'px');
+        root.style.setProperty('--pop-y', y + 'px');
+        root.classList.add('side-pop');
+      }
+      new MutationObserver(place).observe(document.body, {subtree:true, childList:true, attributes:true, attributeFilter:['aria-expanded']});
+      window.addEventListener('resize', place);
+      document.addEventListener('scroll', place, true);
+    })();`;
+  doc.head.appendChild(s);
+}
+</script>'''
 
 
 def compact(num, money=False):
@@ -240,6 +274,7 @@ with st.sidebar:
                          on_change=remember_upload,args=('forecast_new','forecast_upload'))
         st.caption('Forecast: columnas product_id, region, year, mes_num, forecast_units.')
     st.caption(f'Fuente: {source_name}')
+    components.html(SIDE_POPOVER_JS,height=0)
 
 forecast_file=st.session_state.get('forecast_upload')
 
