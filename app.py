@@ -316,6 +316,13 @@ with st.sidebar:
         with st.popover(f'{title}: {picked(key,fmt,todos)}',use_container_width=True):
             return st.pills(title,options,selection_mode='multi',key=key,format_func=fmt,label_visibility='collapsed')
 
+    def single_filter(title, options, key, default, fmt=str):
+        # Ventanita con chips de UNA opción. Si se desmarca, se usa el valor por defecto.
+        if st.session_state.get(key) not in options: st.session_state[key]=default
+        with st.popover(f'{title}: {fmt(st.session_state[key])}',use_container_width=True):
+            value=st.pills(title,options,selection_mode='single',key=key,format_func=fmt,label_visibility='collapsed')
+        return default if value is None else value
+
     all_years=sorted(df.year.unique().tolist())
     year_options=[str(y) for y in all_years]+['Ambos']
     st.session_state.setdefault('year',year_options[-2])
@@ -339,9 +346,10 @@ with st.sidebar:
         max_month=int(df[df.year==cut_year].mes_num.max())
         cutoff_options=[i for i in range(1,max_month+1)]
         default_cut=9 if 9 in cutoff_options else max(cutoff_options)
-        current_month=st.selectbox('MES ACTUAL (CORTE)',cutoff_options,format_func=lambda m: calendar.month_name[m],index=cutoff_options.index(default_cut),key='cut')
-        service=st.radio('NIVEL DE SERVICIO',[90,95,99],index=1,horizontal=True,format_func=lambda x:f'{x}%',key='service')
-        promote_days=st.radio('PROMOVER SI HAY MÁS DE',[60,120,180],index=1,horizontal=True,format_func=lambda x:f'{x} días',key='promote')
+        # Mismo estilo que los demás filtros: botón con ventanita, pero de una sola opción.
+        current_month=single_filter('Mes de corte',cutoff_options,'cut',default_cut,fmt=lambda m:MONTH_NAMES[m])
+        service=single_filter('Nivel de servicio',[90,95,99],'service',95,fmt=lambda x:f'{x}%')
+        promote_days=single_filter('Promover si hay más de',[60,120,180],'promote',120,fmt=lambda x:f'{x} días')
     def reset_filters():
         # Se asignan valores vacíos (no se borran) para que los chips también se vean sin seleccionar.
         for k in ('region','cat','subcat','month_des'):
@@ -428,7 +436,7 @@ else:
         plan,(fy,fm)=build_purchase_plan(universe,cut_year,current_month,service,forecast_external)
     except Exception as exc:
         st.error(f'No se pudo calcular el plan: {exc}');st.stop()
-    title_bar('Ventas esperadas e inventario a pedir',f'Plan de abastecimiento para {calendar.month_name[fm]} {fy} · {source_tag}')
+    title_bar('Ventas esperadas e inventario a pedir',f'Plan de abastecimiento para {MONTH_NAMES[fm]} {fy} · {source_tag}')
     if plan.empty:
         st.warning('No hay registros con pronóstico para ese período y filtros.');st.stop()
     plan['Acción']=plan.apply(lambda r:action_for_product(r,promote_days),axis=1)
@@ -478,9 +486,3 @@ else:
         st.dataframe(shown[cols].sort_values(['Excedente estimado','% Sobrestock'],ascending=False),hide_index=True,use_container_width=True,height=560,
           column_config={'% Sobrestock':st.column_config.ProgressColumn('% Sobrestock',format='%.1f%%',min_value=0,max_value=100),
                          'Días de inventario':st.column_config.NumberColumn('Días de inventario',format='%.0f')})
-    with st.expander('Cómo integrar los modelos ML cuando los recibamos'):
-        st.markdown('''**Opción A (recomendada):** sustituir `predict_demand` dentro de `ml_adapter.py` por la inferencia del árbol/XGBoost de su equipo.
-
-**Opción B:** subir un `.csv` de predicciones con `product_id, region, year, mes_num, forecast_units`. El sistema seleccionará únicamente el mes posterior al corte.
-
-Las variables disponibles para los modelos deben existir **antes del mes objetivo**. No usar `units_sold`, `stock` o métricas construidas con ventas del mes a pronosticar. Para integrar el clasificador de grupos, añadir sus etiquetas por `product_id + region` antes de calcular las recomendaciones.''')
