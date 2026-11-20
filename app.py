@@ -133,34 +133,50 @@ def title_bar(title,subtitle):
                 f'<div class="small-caption">{subtitle}</div></div></div>',unsafe_allow_html=True)
 
 
+def remember_upload(widget_key, state_key):
+    """Guarda el archivo subido en session_state para no volver a pedirlo."""
+    f=st.session_state.get(widget_key)
+    if f is not None:
+        st.session_state[state_key]=(f.name,f.getvalue())
+
+
+def load_base():
+    """Orden: archivo subido en esta sesión > copia local en data/ > pedirlo una sola vez."""
+    if 'base_upload' in st.session_state:
+        name,buf=st.session_state['base_upload']
+        return name,read_book(buf)
+    data_dir=BASE/'data'
+    book_path=next((data_dir/name for name in DEFAULT_BOOKS if (data_dir/name).is_file()), None)
+    if book_path is None:
+        return None,None
+    book_stat=book_path.stat()
+    return book_path.name,load_default(book_path,(book_stat.st_mtime_ns,book_stat.st_size))
+
+
+try:
+    source_name,df=load_base()
+except Exception as exc:
+    st.error(f'No se pudo cargar la base: {exc}')
+    st.session_state.pop('base_upload',None)
+    st.stop()
+
+if df is None:
+    # Primera vez sin base local: se pide el archivo una sola vez en la pantalla principal.
+    _,mid,_=st.columns([1,1.4,1])
+    with mid:
+        st.markdown('<h2 style="margin-top:12vh">DanuStore</h2>',unsafe_allow_html=True)
+        st.file_uploader('Sube la base de ventas e inventario (Base_final_v2.xlsx)',type=['xlsx'],
+                         key='base_first',on_change=remember_upload,args=('base_first','base_upload'))
+        st.caption('Solo se pide una vez. Después puedes cambiarla desde la barra lateral.')
+    st.stop()
+if df.empty:
+    st.warning('La base de datos no contiene registros válidos.')
+    st.stop()
+
 with st.sidebar:
     st.markdown('<div class="sidebrand">DanuStore</div>',unsafe_allow_html=True)
     page=st.radio('TABLERO',['Ventas e inventario','Ventas esperadas e inventario a pedir'],label_visibility='collapsed')
     st.divider()
-    with st.expander('Archivos de datos',expanded=False):
-        base_file=st.file_uploader('Base de ventas e inventario (.xlsx)',type=['xlsx'],key='base')
-        st.caption('Se acepta Base_final_v2.xlsx o Base_final.xlsx.')
-        forecast_file=st.file_uploader('Forecast de ML (.csv) · opcional',type=['csv'],key='forecast')
-        st.caption('Columnas: product_id, region, year, mes_num, forecast_units.')
-    try:
-        if base_file is not None:
-            source_name=base_file.name
-            df=read_book(base_file.getvalue())
-        else:
-            data_dir=BASE/'data'
-            book_path=next((data_dir/name for name in DEFAULT_BOOKS if (data_dir/name).is_file()), None)
-            if book_path is None:
-                st.info('Carga Base_final_v2.xlsx o Base_final.xlsx desde la sección Archivos de datos.')
-                st.stop()
-            source_name=book_path.name
-            book_stat=book_path.stat()
-            df=load_default(book_path, (book_stat.st_mtime_ns, book_stat.st_size))
-    except Exception as exc:
-        st.error(f'No se pudo cargar la base: {exc}')
-        st.stop()
-    if df.empty:
-        st.warning('La base de datos no contiene registros válidos.')
-        st.stop()
 
     all_years=sorted(df.year.unique().tolist())
     year_choice=st.radio('AÑO',[str(y) for y in all_years]+['Ambos'],
@@ -191,8 +207,16 @@ with st.sidebar:
             if k in st.session_state: del st.session_state[k]
         st.rerun()
     st.divider()
-    st.caption(f'**Fuente:** {source_name}')
-    st.caption('Los indicadores sobre stock se calculan sobre registros mensuales; no equivalen necesariamente a existencias únicas del año.')
+    # Carga de archivos escondida en un botón chico al final para no estorbar a los filtros.
+    with st.popover('⚙ Cambiar archivos',use_container_width=True):
+        st.file_uploader('Base de ventas e inventario (.xlsx)',type=['xlsx'],key='base_new',
+                         on_change=remember_upload,args=('base_new','base_upload'))
+        st.file_uploader('Forecast de ML (.csv) · opcional',type=['csv'],key='forecast_new',
+                         on_change=remember_upload,args=('forecast_new','forecast_upload'))
+        st.caption('Forecast: columnas product_id, region, year, mes_num, forecast_units.')
+    st.caption(f'Fuente: {source_name}')
+
+forecast_file=st.session_state.get('forecast_upload')
 
 regions=None if region=='Todas las regiones' else [region]
 cats=None if cat_choice=='Todas' else [cat_choice]
@@ -235,7 +259,7 @@ if page=='Ventas e inventario':
 else:
     cut_year=max(sel_years)
     if forecast_file is not None:
-        try: forecast_external=pd.read_csv(BytesIO(forecast_file.getvalue()))
+        try: forecast_external=pd.read_csv(BytesIO(forecast_file[1]))
         except Exception as exc:
             st.error(f'Error en el CSV de forecast: {exc}');st.stop()
         source_tag='Pronóstico importado · archivo del equipo'
