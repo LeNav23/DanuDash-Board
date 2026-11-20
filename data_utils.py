@@ -148,18 +148,18 @@ def low_rotation_products(d,n=8):
     return r.sort_values(['rotation','unsold'],ascending=[True,False]).head(n)
 
 
-def sold_out_matrix(d):
-    """% de productos que vendieron TODO su stock, por región × mes.
+def sold_out_products(d):
+    """Producto × región que vendieron TODO su stock en más meses del periodo.
 
-    Una fila de la base (producto-región-mes) "vendió todo" si units_sold >= stock.
+    Un mes "vendió todo" si units_sold >= stock (en la base nunca hay ventas > stock).
     No decimos "agotado": no sabemos si hubo más demanda que no se pudo atender.
-    Con varios años elegidos, cada celda junta los meses iguales de ambos años.
+    Orden: más meses con todo vendido; en empate, más unidades vendidas (más venta en juego).
     """
-    if d.empty: return pd.DataFrame(columns=['region','mes_num','pct','n','total'])
-    t=d.assign(all_sold=d.units_sold>=d.stock).groupby(['region','mes_num'],as_index=False).agg(
-        n=('all_sold','sum'),total=('all_sold','size'))
-    t['pct']=100*t.n/t.total
-    return t
+    keys=['product_id','product_name','region']
+    t=d.assign(all_sold=d.units_sold>=d.stock).groupby(keys,as_index=False).agg(
+        months_sold_out=('all_sold','sum'),months=('all_sold','size'),units_sold=('units_sold','sum'))
+    t=t[t.months_sold_out>0]
+    return t.sort_values(['months_sold_out','units_sold'],ascending=False)
 
 
 def compare_year_growth(d, year:int):

@@ -13,13 +13,12 @@ from hashlib import sha256
 from io import BytesIO
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 import streamlit.components.v1 as components
 
-from data_utils import (prepare_data,subset,region_rotation,sold_out_matrix,
+from data_utils import (prepare_data,subset,region_rotation,sold_out_products,
                         low_rotation_products,build_purchase_plan,
                         action_for_product,MONTH_NAMES,next_month,cut_history,REGION_SHORT,REGION_ORDER,
                         kpi_cards,rotation_status,STATUS_LABELS)
@@ -182,29 +181,6 @@ def chart_months(d):
     fig.update_xaxes(tickvals=list(range(1,13)),ticktext=list(MONTH_NAMES.values()),title=None)
     fig.update_yaxes(title='Unidades',tickformat='~s')
     return style_fig(fig,height=330)
-
-
-def chart_sold_out(d):
-    """Mapa de calor región × mes: % de productos que vendieron todo su stock."""
-    t=sold_out_matrix(d)
-    if t.empty:return empty_fig()
-    regions=[r for r in REGION_ORDER if r in set(t.region)]
-    months=sorted(t.mes_num.unique())
-    pct=t.pivot(index='region',columns='mes_num',values='pct').reindex(index=regions,columns=months)
-    n=t.pivot(index='region',columns='mes_num',values='n').reindex(index=regions,columns=months)
-    tot=t.pivot(index='region',columns='mes_num',values='total').reindex(index=regions,columns=months)
-    full=[[REGION_SHORT.get(r,r)]*len(months) for r in regions]
-    fig=go.Figure(go.Heatmap(
-        z=pct.values,x=[MONTH_NAMES[m] for m in months],y=[REGION_SHORT.get(r,r) for r in regions],
-        text=pct.round(0).values,texttemplate='%{text:.0f}%',textfont=dict(size=10),
-        customdata=np.dstack([n.values,tot.values]),
-        # Escala cálida: oscuro (casi nunca) → ámbar → terracota (muy seguido).
-        colorscale=[[0,'#1C2940'],[.35,'#6B5A45'],[.7,'#D4A762'],[1,'#D9826F']],zmin=0,zmax=max(60,float(t.pct.max())),
-        colorbar=dict(title=dict(text='%',side='top'),thickness=10,ticksuffix='%',len=.9),
-        hovertemplate='%{y} · %{x}: %{z:.0f}% de los productos vendieron todo su stock<br>(%{customdata[0]:.0f} de %{customdata[1]:.0f})<extra></extra>',
-        xgap=2,ygap=2))
-    fig.update_yaxes(autorange='reversed',gridcolor='rgba(0,0,0,0)')
-    return style_fig(fig,height=300,margins=dict(l=8,r=8,t=8,b=8))
 
 
 
@@ -391,12 +367,22 @@ if page=='Ventas e inventario':
         with st.container(border=True):
             st.subheader('Comparación ventas contra stock por mes')
             st.plotly_chart(chart_months(data),use_container_width=True,config={'displayModeBar':False})
-    a,b=st.columns([1.25,1],gap='small')
+    a,b=st.columns(2,gap='small')
     with a:
         with st.container(border=True):
-            st.subheader('¿Dónde y cuándo se vendió todo el stock?')
-            st.caption('% de productos que vendieron todo su stock en el mes')
-            st.plotly_chart(chart_sold_out(data),use_container_width=True,config={'displayModeBar':False})
+            st.subheader('Productos que vendieron todo su stock')
+            sold=sold_out_products(data)
+            n_months=int(data.groupby(['year','mes_num']).ngroups)
+            n_all=int((sold.months_sold_out==n_months).sum())
+            st.caption(f'{n_all:,} producto-región vendieron todo su stock en los {n_months} meses elegidos' if n_months>1
+                       else f'{len(sold):,} producto-región vendieron todo su stock en el mes elegido')
+            sold=sold.assign(Región=sold.region.map(lambda r:REGION_SHORT.get(r,r)))
+            sold=sold.rename(columns={'product_name':'Producto','months_sold_out':'Meses con todo vendido','units_sold':'Vendidas'})
+            st.dataframe(sold[['Producto','Región','Meses con todo vendido','Vendidas']],hide_index=True,use_container_width=True,height=330,
+                column_config={'Producto':st.column_config.TextColumn('Producto',width=150),
+                               'Región':st.column_config.TextColumn('Región',width=72),
+                               'Meses con todo vendido':st.column_config.ProgressColumn('Meses al 100%',min_value=0,max_value=n_months,format=f'%d de {n_months}',width=130),
+                               'Vendidas':st.column_config.NumberColumn('Vendidas (uds)',format='localized',width=95)})
     with b:
         with st.container(border=True):
             st.subheader('Productos con menor rotación')
