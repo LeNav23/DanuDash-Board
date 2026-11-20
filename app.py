@@ -350,7 +350,7 @@ with st.sidebar:
         default_cut=9 if 9 in cutoff_options else max(cutoff_options)
         # Mismo estilo que los demás filtros: botón con ventanita, pero de una sola opción.
         current_month=single_filter('Mes de corte',cutoff_options,'cut',default_cut,fmt=lambda m:MONTH_NAMES[m])
-        service=single_filter('Nivel de servicio',[90,95,99],'service',95,fmt=lambda x:f'{x}%')
+        service=95  # nivel de servicio fijo en 95% (z = 1.645); ya no es filtro
         promote_days=single_filter('Promover si hay más de',[60,120,180],'promote',120,fmt=lambda x:f'{x} días')
     def reset_filters():
         # Se asignan valores vacíos (no se borran) para que los chips también se vean sin seleccionar.
@@ -428,17 +428,15 @@ else:
         try: forecast_external=pd.read_csv(BytesIO(forecast_file[1]))
         except Exception as exc:
             st.error(f'Error en el CSV de forecast: {exc}');st.stop()
-        source_tag='Pronóstico importado · archivo del equipo'
     else:
         forecast_external=None
-        source_tag='Referencia provisional · mismo mes del año anterior (NO ML)'
     # Filtro a toda la historia hasta corte; se conservan años previos para los lags.
     universe=subset(df,None,regions,cats,subs)
     try:
         plan,(fy,fm)=build_purchase_plan(universe,cut_year,current_month,service,forecast_external)
     except Exception as exc:
         st.error(f'No se pudo calcular el plan: {exc}');st.stop()
-    title_bar('Ventas esperadas e inventario a pedir',f'Plan de abastecimiento para {MONTH_NAMES[fm]} {fy} · {source_tag}')
+    title_bar('Ventas esperadas e inventario a pedir','')
     if plan.empty:
         st.warning('No hay registros con pronóstico para ese período y filtros.');st.stop()
     plan['Acción']=plan.apply(lambda r:action_for_product(r,promote_days),axis=1)
