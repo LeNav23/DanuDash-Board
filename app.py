@@ -472,20 +472,12 @@ else:
 
     with st.container(border=True):
         st.subheader('Comparación ventas contra forecast por mes')
-        # Para comparar meses observados, se genera una referencia estacional desde 2024.
         hist=cut_history(universe,cut_year,current_month)
-        monthly=hist.groupby(['year','mes_num'],as_index=False)['units_sold'].sum()
-        monthly['date']=pd.to_datetime(dict(year=monthly.year,month=monthly.mes_num,day=1))
-        monthly=monthly.sort_values('date')
-        annual=monthly.copy()
-        annual['date']=annual.date+pd.DateOffset(years=1)
-        annual=annual.rename(columns={'units_sold':'reference_units'})
-        historic=monthly.merge(annual[['date','reference_units']],on='date',how='left')
+        historic=hist.groupby(['year','mes_num'],as_index=False)['units_sold'].sum()
+        historic['date']=pd.to_datetime(dict(year=historic.year,month=historic.mes_num,day=1))
+        historic=historic.sort_values('date')
         fig=go.Figure()
         fig.add_trace(go.Scatter(x=historic.date,y=historic.units_sold,mode='lines+markers',name='Unidades vendidas',line=dict(color=BLUE,width=3)))
-        past_ref=historic.dropna(subset=['reference_units'])
-        if not past_ref.empty:
-            fig.add_trace(go.Scatter(x=past_ref.date,y=past_ref.reference_units,mode='lines',name='Referencia histórica',line=dict(color=PURPLE,width=2,dash='dot')))
         next_date=pd.Timestamp(year=fy,month=fm,day=1)
         fig.add_trace(go.Scatter(x=[next_date],y=[plan.forecast_units.sum()],mode='markers+text',name='Forecast siguiente mes',
             marker=dict(color=PURPLE,size=12,symbol='diamond'),text=[compact(plan.forecast_units.sum())],textposition='top center'))
