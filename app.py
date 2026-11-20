@@ -21,7 +21,7 @@ import streamlit.components.v1 as components
 from data_utils import (prepare_data,subset,region_rotation,subcategory_rotation,
                         low_rotation_products,build_purchase_plan,
                         action_for_product,MONTH_NAMES,next_month,cut_history,REGION_SHORT,REGION_ORDER,
-                        kpi_cards)
+                        kpi_cards,rotation_status,STATUS_LABELS)
 
 st.set_page_config(page_title='DanuStore · Inventario y compras',page_icon='📦',layout='wide',initial_sidebar_state='expanded')
 BASE=Path(__file__).resolve().parent
@@ -31,6 +31,8 @@ BOOK_SNAPSHOT_HASHES={
     'Base_final.xlsx': '0825dd11fb572fb36a566f2a16343c3d2761017861b44e66260a5fb7751a687a',
 }
 BLUE='#75A4FF'; INK='#E6EEFA'; MUTED='#A9B7CC'; PURPLE='#BA9AFF'
+# Colores cálidos y suaves (no chillones) para el semáforo; los mismos tonos que las tarjetas KPI.
+STATUS_COLORS={'sobra':'#D9826F','ok':'#7FB38A','corto':'#D4A762'}
 
 st.markdown('''<style>
 [data-testid="stHeader"] {background:transparent;}
@@ -154,9 +156,20 @@ def style_fig(fig,height=285,margins=None):
 def chart_region(d):
     r=region_rotation(d)
     if r.empty:return empty_fig()
-    fig=go.Figure(go.Bar(x=r.region,y=r.rotation,marker_color=BLUE,text=[f'{v:.1f}%' for v in r.rotation],textposition='outside',hovertemplate='%{x}: %{y:.1f}%<extra></extra>'))
+    r=r.assign(short=r.region.map(lambda x:REGION_SHORT.get(x,x)),status=r.rotation.map(rotation_status))
+    fig=go.Figure()
+    # Una serie por color para que la leyenda explique el semáforo.
+    for status in ('corto','ok','sobra'):  # mismo orden que las barras (de más a menos rotación)
+        s=r[r.status==status]
+        fig.add_trace(go.Bar(x=s.short,y=s.rotation,name=STATUS_LABELS[status],marker_color=STATUS_COLORS[status],
+            text=[f'{v:.1f}%' for v in s.rotation],textposition='outside',customdata=s.region,
+            hovertemplate='%{customdata}: %{y:.1f}% de su stock se vendió<extra></extra>'))
+    fig.update_xaxes(categoryorder='array',categoryarray=r.short.tolist())
     fig.update_yaxes(title='Rotación (%)',range=[0,max(55,r.rotation.max()*1.2)],ticksuffix='%')
-    return style_fig(fig,height=330)
+    fig=style_fig(fig,height=330)
+    # Después de style_fig (que pone la leyenda a la derecha): leyenda a la izquierda, en un renglón.
+    fig.update_layout(barmode='overlay',legend=dict(font=dict(size=10),x=-0.1,xanchor='left',itemwidth=30,entrywidth=0))
+    return fig
 
 
 def chart_months(d):

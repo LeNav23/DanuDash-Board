@@ -14,6 +14,18 @@ REGION_SHORT = {'Ciudad de México':'CDMX','Zona Metropolitana de Monterrey':'MT
                 'Sur':'Sur','Sureste':'Sureste'}
 REGION_ORDER = list(REGION_SHORT)
 
+# Semáforo de rotación por región. Es de doble lado: rotar poco = sobra stock,
+# rotar mucho = la región vende casi todo y se puede quedar sin stock.
+# OJO: los cortes 50/80 son PROPUESTA DEL EQUIPO (pendiente investigar una regla con fuente).
+ROTATION_LOW, ROTATION_HIGH = 50, 80
+STATUS_LABELS = {'corto':'Se queda corto ≥80%','ok':'Equilibrado','sobra':'Sobra stock <50%'}
+
+
+def rotation_status(rotation):
+    if rotation < ROTATION_LOW: return 'sobra'
+    if rotation >= ROTATION_HIGH: return 'corto'
+    return 'ok'
+
 
 def prepare_data(df: pd.DataFrame) -> pd.DataFrame:
     if 'units_sold' not in df.columns and 'units_sold_total' in df.columns:
