@@ -35,7 +35,10 @@ BLUE='#75A4FF'; INK='#E6EEFA'; MUTED='#A9B7CC'; PURPLE='#BA9AFF'
 st.markdown('''<style>
 [data-testid="stHeader"] {background:transparent;}
 [data-testid="stSidebar"] {border-right:1px solid #2B3B54;}
-.block-container {padding:1.1rem 1rem 1.4rem;max-width:100%;}
+.block-container {padding:.35rem 1rem 1.4rem;max-width:100%;}
+/* Barra lateral: se quita casi todo el espacio vacío de arriba (franja del botón para cerrarla). */
+[data-testid="stSidebarHeader"] {height:2rem;min-height:2rem;padding-top:.3rem;padding-bottom:0;}
+[data-testid="stSidebarUserContent"] {padding-top:0;}
 [data-testid="stMainBlockContainer"] [data-testid="stVerticalBlock"] {gap:.5rem;}
 [data-testid="stMainBlockContainer"] [data-testid="stHorizontalBlock"] {gap:.5rem;}
 h1 {font-size:2rem !important;font-weight:800 !important;letter-spacing:-0.025em;}
@@ -52,7 +55,7 @@ h3 {font-size:1.05rem !important;font-weight:700 !important;}
 [data-testid="stRadio"] label {font-size:.75rem;font-weight:700;}
 footer {visibility:hidden;}
 /* Tarjetas KPI. Colores cálidos y suaves: verde salvia = bueno, terracota = malo. */
-.kpi-row {display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:.5rem;}
+.kpi-row {display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:.5rem;margin-bottom:16px;} /* compensa el -16px que Streamlit le pone al bloque */
 .kpi {background:#172235;border:1px solid #2B3B54;border-radius:9px;padding:9px 14px;}
 .kpi-compare,.kpi-note {white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .kpi-label {font-size:.72rem;color:#A9B7CC;letter-spacing:.055em;font-weight:700;text-transform:uppercase;}
@@ -73,8 +76,8 @@ footer {visibility:hidden;}
 html.side-pop [data-testid="stPopoverBody"] {transform:translate(var(--pop-x),var(--pop-y)) !important;}
 [data-testid="stPopoverBody"] [data-testid="stButtonGroup"] [role="toolbar"] button {width:100%;justify-content:flex-start;min-height:30px;padding:2px 12px;}
 .notice{padding:0.55rem .8rem;background:#172235;border:1px solid #2B3B54;border-radius:8px;color:#C5D4EB;font-size:.84rem;}
-.sidebrand{font-size:1.1rem;font-weight:800;border-bottom:1px solid #2B3B54;padding:6px 0 15px;margin-bottom:8px;}
-.small-caption{font-size:.75rem;color:#A9B7CC;border-bottom:1px;padding-bottom:4px;margin-bottom:8px;}
+.sidebrand{font-size:1.1rem;font-weight:800;border-bottom:1px solid #2B3B54;padding:0 0 10px;margin-bottom:8px;}
+.small-caption{font-size:.92rem;color:#A9B7CC;margin:0 0 6px;}
 </style>''',unsafe_allow_html=True)
 
 
@@ -153,7 +156,7 @@ def chart_region(d):
     if r.empty:return empty_fig()
     fig=go.Figure(go.Bar(x=r.region,y=r.rotation,marker_color=BLUE,text=[f'{v:.1f}%' for v in r.rotation],textposition='outside',hovertemplate='%{x}: %{y:.1f}%<extra></extra>'))
     fig.update_yaxes(title='Rotación (%)',range=[0,max(55,r.rotation.max()*1.2)],ticksuffix='%')
-    return style_fig(fig,height=275)
+    return style_fig(fig,height=330)
 
 
 def chart_months(d):
@@ -164,7 +167,7 @@ def chart_months(d):
     fig.add_trace(go.Scatter(x=m.mes_num,y=m.units_sold,mode='lines+markers',name='Unidades vendidas',line=dict(color=PURPLE,width=3),marker=dict(size=6)))
     fig.update_xaxes(tickvals=list(range(1,13)),ticktext=list(MONTH_NAMES.values()),title=None)
     fig.update_yaxes(title='Unidades',tickformat='~s')
-    return style_fig(fig,height=275)
+    return style_fig(fig,height=330)
 
 
 def chart_subcats(d):
@@ -235,7 +238,7 @@ def render_kpi_cards(k):
 
 def title_bar(title,subtitle):
     st.markdown(f'<div style="display:flex;justify-content:space-between;align-items:flex-end">'
-                f'<div><h1 style="margin:0 0 3px">{title}</h1>'
+                f'<div><h1 style="margin:0;padding:0;line-height:1.15">{title}</h1>'
                 f'<div class="small-caption">{subtitle}</div></div></div>',unsafe_allow_html=True)
 
 
