@@ -8,6 +8,23 @@ from ml_adapter import predict_demand, safety_stock_from_history
 MONTHS = {m.lower():i for i,m in enumerate(calendar.month_name) if i}
 MONTH_NAMES = {i:n for i,n in enumerate(['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic']) if i}
 CATS_ES = {'Fitness Wear':'Deportiva','Casual Wear':'Casual','Accessories':'Accesorios','Footwear':'Calzado'}
+# Nombres cortos para chips y ejes; el orden va de la región más grande a la más chica.
+REGION_SHORT = {'Ciudad de México':'CDMX','Zona Metropolitana de Monterrey':'MTY',
+                'Zona Metropolitana de Guadalajara':'GDL','Bajío':'Bajío','Noroeste':'Noroeste',
+                'Sur':'Sur','Sureste':'Sureste'}
+REGION_ORDER = list(REGION_SHORT)
+
+# Semáforo de rotación por región. Es de doble lado: rotar poco = sobra stock,
+# rotar mucho = la región vende casi todo y se puede quedar sin stock.
+# OJO: los cortes 50/80 son PROPUESTA DEL EQUIPO (pendiente investigar una regla con fuente).
+ROTATION_LOW, ROTATION_HIGH = 50, 80
+STATUS_LABELS = {'corto':'Se queda corto ≥80%','ok':'Equilibrado','sobra':'Sobra stock <50%'}
+
+
+def rotation_status(rotation):
+    if rotation < ROTATION_LOW: return 'sobra'
+    if rotation >= ROTATION_HIGH: return 'corto'
+    return 'ok'
 
 
 def prepare_data(df: pd.DataFrame) -> pd.DataFrame:
@@ -55,6 +72,54 @@ def descriptive_kpis(d):
             'over_units':over,'unsold':float(unsold.sum()),'unsold_value':value}
 
 
+def _pct_change(cur, prev):
+    return (cur/prev-1)*100 if prev else None
+
+
+def _unsold_value(d):
+    """Valor a precio de lista de lo que quedó sin vender: máx(stock - vendidas, 0) × static_price."""
+    unsold=np.maximum(d.stock.to_numpy()-d.units_sold.to_numpy(),0)
+    return float(np.nansum(unsold*d.static_price.fillna(0).to_numpy()))
+
+
+def kpi_cards(base, year, months=None):
+    """Los 4 KPIs del tablero descriptivo, cada uno con su comparación.
+
+    base   = datos ya filtrados por región/categoría/subcategoría, con TODOS los años y meses
+             (se necesitan el año y el mes anteriores para comparar).
+    year   = año que se analiza (el más reciente elegido).
+    months = meses elegidos; vacío = todo el año. El "mes de corte" es el último elegido.
+    """
+    have=sorted(base.loc[base.year==year,'mes_num'].unique().tolist())
+    ms=[m for m in (months or have) if m in have]
+    if not ms: return None
+    last=max(ms)
+    prev_y,prev_m=(year,last-1) if last>1 else (year-1,12)
+
+    def rows(y,mm): return base[(base.year==y)&(base.mes_num.isin(mm))]
+    cur, cur_ly = rows(year,ms), rows(year-1,ms)
+    lm, pm, lm_ly = rows(year,[last]), rows(prev_y,[prev_m]), rows(year-1,[last])
+
+    sales, sales_ly = float(cur.units_sold.sum()), float(cur_ly.units_sold.sum())
+    s_lm, s_pm = float(lm.units_sold.sum()), float(pm.units_sold.sum())
+    # Rotación = vendidas / stock del periodo (suma de meses), en %.
+    rot = 100*sales/float(cur.stock.sum()) if cur.stock.sum() else None
+    rot_ly = 100*sales_ly/float(cur_ly.stock.sum()) if len(cur_ly) and cur_ly.stock.sum() else None
+    # Inventario sin vender = FOTO del mes de corte (no la suma de meses: contaría la misma pieza varias veces).
+    unsold, unsold_ly = _unsold_value(lm), (_unsold_value(lm_ly) if len(lm_ly) else None)
+    return {
+        'year':year,'months':ms,'last':last,'prev_y':prev_y,'prev_m':prev_m,
+        'sales':sales,'sales_ly':sales_ly if len(cur_ly) else None,
+        'yoy':_pct_change(sales,sales_ly) if len(cur_ly) else None,
+        'sales_last':s_lm,'sales_prev_month':s_pm if len(pm) else None,
+        'mom':_pct_change(s_lm,s_pm) if len(pm) else None,
+        'rotation':rot,'rotation_ly':rot_ly,
+        'rotation_delta':(rot-rot_ly) if rot is not None and rot_ly is not None else None,
+        'unsold':unsold,'unsold_ly':unsold_ly,
+        'unsold_change':_pct_change(unsold,unsold_ly) if unsold_ly else None,
+    }
+
+
 def region_rotation(d):
     r=d.groupby('region',as_index=False)[['units_sold','stock']].sum()
     r['rotation']=np.where(r.stock>0,100*r.units_sold/r.stock,0)
@@ -68,10 +133,33 @@ def subcategory_rotation(d):
 
 
 def low_rotation_products(d,n=8):
-    r=d.groupby(['product_id','product_name','subcategory'],as_index=False)[['units_sold','stock']].sum()
+    """Productos que menos rotan en el periodo.
+
+    rotation = vendidas / stock del periodo (suma de meses).
+    unsold   = piezas sin vender en la FOTO del último mes del periodo (igual que el KPI;
+               sumar meses contaría la misma pieza varias veces).
+    """
+    keys=['product_id','product_name','subcategory']
+    r=d.groupby(keys,as_index=False)[['units_sold','stock']].sum()
     r['rotation']=np.where(r.stock>0,100*r.units_sold/r.stock,0)
-    r['unsold']=np.maximum(r.stock-r.units_sold,0)
+    last=d[d.date==d.date.max()]
+    snap=last.assign(unsold=np.maximum(last.stock-last.units_sold,0)).groupby(keys,as_index=False)['unsold'].sum()
+    r=r.merge(snap,on=keys,how='left').fillna({'unsold':0})
     return r.sort_values(['rotation','unsold'],ascending=[True,False]).head(n)
+
+
+def sold_out_products(d):
+    """Producto × región que vendieron TODO su stock en más meses del periodo.
+
+    Un mes "vendió todo" si units_sold >= stock (en la base nunca hay ventas > stock).
+    No decimos "agotado": no sabemos si hubo más demanda que no se pudo atender.
+    Orden: más meses con todo vendido; en empate, más unidades vendidas (más venta en juego).
+    """
+    keys=['product_id','product_name','region']
+    t=d.assign(all_sold=d.units_sold>=d.stock).groupby(keys,as_index=False).agg(
+        months_sold_out=('all_sold','sum'),months=('all_sold','size'),units_sold=('units_sold','sum'))
+    t=t[t.months_sold_out>0]
+    return t.sort_values(['months_sold_out','units_sold'],ascending=False)
 
 
 def compare_year_growth(d, year:int):

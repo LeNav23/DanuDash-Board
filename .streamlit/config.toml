@@ -1,6 +1,14 @@
-[theme]
-base = "dark"
+# Dos temas: cada persona elige en el menú ⋮ (arriba a la derecha) → System / Light / Dark.
+# El CSS de app.py y las gráficas se adaptan solos al tema elegido.
+
+[theme.dark]
 primaryColor = "#75A4FF"
 backgroundColor = "#0E1728"
 secondaryBackgroundColor = "#172235"
 textColor = "#E6EEFA"
+
+[theme.light]
+primaryColor = "#3466C9"
+backgroundColor = "#F4F6FA"
+secondaryBackgroundColor = "#E6EBF3"
+textColor = "#1B2433"
