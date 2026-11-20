@@ -49,6 +49,12 @@ h3 {font-size:1.05rem !important;font-weight:700 !important;}
 [data-testid="stSelectbox"] label,[data-testid="stMultiSelect"] label {font-size:.75rem;font-weight:700;letter-spacing:.025em;}
 [data-testid="stRadio"] label {font-size:.75rem;font-weight:700;}
 footer {visibility:hidden;}
+/* Ventanitas de filtros: lista vertical angosta, como un menú, en vez de una fila larga. */
+[data-testid="stPopoverBody"]:has([data-testid="stButtonGroup"]) {width:230px !important;min-width:230px !important;max-height:70vh;overflow-y:auto;}
+[data-testid="stPopoverBody"] [data-testid="stElementContainer"]:has([data-testid="stButtonGroup"]),
+[data-testid="stPopoverBody"] [data-testid="stButtonGroup"] {width:100% !important;}
+[data-testid="stPopoverBody"] [data-testid="stButtonGroup"] [role="toolbar"] {flex-direction:column;flex-wrap:nowrap;align-items:stretch;gap:4px;width:100%;max-width:none !important;}
+[data-testid="stPopoverBody"] [data-testid="stButtonGroup"] [role="toolbar"] button {width:100%;justify-content:flex-start;min-height:30px;padding:2px 12px;}
 .notice{padding:0.55rem .8rem;background:#172235;border:1px solid #2B3B54;border-radius:8px;color:#C5D4EB;font-size:.84rem;}
 .sidebrand{font-size:1.1rem;font-weight:800;border-bottom:1px solid #2B3B54;padding:6px 0 15px;margin-bottom:8px;}
 .small-caption{font-size:.75rem;color:#A9B7CC;border-bottom:1px;padding-bottom:4px;margin-bottom:8px;}
