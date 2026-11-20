@@ -30,13 +30,17 @@ BOOK_SNAPSHOT_HASHES={
     'Base_final_v2.xlsx': '75860ab833a29cccc68cf9ed8dc50c4f4f67f6e2ea0d415ef3eb3f5762013853',
     'Base_final.xlsx': '0825dd11fb572fb36a566f2a16343c3d2761017861b44e66260a5fb7751a687a',
 }
-BLUE='#75A4FF'; INK='#E6EEFA'; MUTED='#A9B7CC'; PURPLE='#BA9AFF'
+BLUE='#6F9CF2'; MUTED='#8A97AB'; PURPLE='#A98BEB'  # se leen bien en tema claro y oscuro
 # Colores cálidos y suaves (no chillones) para el semáforo; los mismos tonos que las tarjetas KPI.
 STATUS_COLORS={'sobra':'#D9826F','ok':'#7FB38A','corto':'#D4A762'}
 
 st.markdown('''<style>
+/* Colores del tema. Oscuro por defecto; el script THEME/SIDE_POPOVER_JS pone html.theme-light
+   cuando el fondo de la app es claro (el usuario lo cambia en el menú ⋮ → Light / Dark). */
+:root {--card:#172235;--line:#2B3B54;--muted:#A9B7CC;--good:#86BF8F;--bad:#E3836F;}
+html.theme-light {--card:#FFFFFF;--line:#D3DBE7;--muted:#5A6880;--good:#3F8A55;--bad:#C0533D;}
 [data-testid="stHeader"] {background:transparent;}
-[data-testid="stSidebar"] {border-right:1px solid #2B3B54;}
+[data-testid="stSidebar"] {border-right:1px solid var(--line);}
 .block-container {padding:.35rem 1rem 1.4rem;max-width:100%;}
 /* Barra lateral: se quita casi todo el espacio vacío de arriba (franja del botón para cerrarla). */
 [data-testid="stSidebarHeader"] {height:2rem;min-height:2rem;padding-top:.3rem;padding-bottom:0;}
@@ -46,11 +50,11 @@ st.markdown('''<style>
 h1 {font-size:2rem !important;font-weight:800 !important;letter-spacing:-0.025em;}
 h2 {font-size:1.23rem !important;font-weight:700 !important;}
 h3 {font-size:1.05rem !important;font-weight:700 !important;}
-[data-testid="stMetric"] {background:#172235;padding:10px 14px;border-radius:9px;border:1px solid #2B3B54;min-height:88px;}
-[data-testid="stMetricLabel"] p {font-size:0.74rem;color:#A9B7CC;letter-spacing:0.055em;font-weight:700;text-transform:uppercase;}
+[data-testid="stMetric"] {background:var(--card);padding:10px 14px;border-radius:9px;border:1px solid var(--line);min-height:88px;}
+[data-testid="stMetricLabel"] p {font-size:0.74rem;color:var(--muted);letter-spacing:0.055em;font-weight:700;text-transform:uppercase;}
 [data-testid="stMetricValue"] {font-weight:800;}
 [data-testid="stMetricDelta"] {font-size:0.72rem;}
-[data-testid="stVerticalBlockBorderWrapper"] {border-color:#2B3B54;}
+[data-testid="stVerticalBlockBorderWrapper"] {border-color:var(--line);}
 [data-testid="stTabs"] button {font-weight:700;}
 .stDownloadButton button {border-radius:8px;}
 [data-testid="stSelectbox"] label,[data-testid="stMultiSelect"] label {font-size:.75rem;font-weight:700;letter-spacing:.025em;}
@@ -58,16 +62,16 @@ h3 {font-size:1.05rem !important;font-weight:700 !important;}
 footer {visibility:hidden;}
 /* Tarjetas KPI. Colores cálidos y suaves: verde salvia = bueno, terracota = malo. */
 .kpi-row {display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:.5rem;margin-bottom:16px;} /* compensa el -16px que Streamlit le pone al bloque */
-.kpi {background:#172235;border:1px solid #2B3B54;border-radius:9px;padding:9px 14px;}
+.kpi {background:var(--card);border:1px solid var(--line);border-radius:9px;padding:9px 14px;}
 .kpi-compare,.kpi-note {white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-.kpi-label {font-size:.72rem;color:#A9B7CC;letter-spacing:.055em;font-weight:700;text-transform:uppercase;}
+.kpi-label {font-size:.72rem;color:var(--muted);letter-spacing:.055em;font-weight:700;text-transform:uppercase;}
 .kpi-unit {display:block;font-weight:500;text-transform:none;letter-spacing:0;opacity:.8;}
 .kpi-value {font-size:1.9rem;font-weight:800;line-height:1.25;margin:2px 0;}
 .kpi-compare {font-size:.84rem;}
-.kpi-note {font-size:.74rem;color:#A9B7CC;margin-top:2px;}
-.kpi-good {color:#86BF8F;font-weight:700;}
-.kpi-bad {color:#E3836F;font-weight:700;}
-.kpi-muted {color:#A9B7CC;}
+.kpi-note {font-size:.74rem;color:var(--muted);margin-top:2px;}
+.kpi-good {color:var(--good);font-weight:700;}
+.kpi-bad {color:var(--bad);font-weight:700;}
+.kpi-muted {color:var(--muted);}
 @media (max-width:900px){.kpi-row{grid-template-columns:repeat(2,minmax(0,1fr));}}
 /* Ventanitas de filtros: lista vertical angosta, como un menú, en vez de una fila larga. */
 [data-testid="stPopoverBody"]:has([data-testid="stButtonGroup"]) {width:230px !important;min-width:230px !important;max-height:70vh;overflow-y:auto;}
@@ -77,9 +81,9 @@ footer {visibility:hidden;}
 /* El script de abajo (SIDE_POPOVER_JS) pone la clase side-pop y la posición junto al botón. */
 html.side-pop [data-testid="stPopoverBody"] {transform:translate(var(--pop-x),var(--pop-y)) !important;}
 [data-testid="stPopoverBody"] [data-testid="stButtonGroup"] [role="toolbar"] button {width:100%;justify-content:flex-start;min-height:30px;padding:2px 12px;}
-.notice{padding:0.55rem .8rem;background:#172235;border:1px solid #2B3B54;border-radius:8px;color:#C5D4EB;font-size:.84rem;}
-.sidebrand{font-size:1.1rem;font-weight:800;border-bottom:1px solid #2B3B54;padding:0 0 10px;margin:-1.75rem 2.5rem 8px 0;} /* sube a la fila del botón «« (que está a la derecha) */
-.small-caption{font-size:.92rem;color:#A9B7CC;margin:0 0 18px;}
+.notice{padding:0.55rem .8rem;background:var(--card);border:1px solid var(--line);border-radius:8px;color:var(--muted);font-size:.84rem;}
+.sidebrand{font-size:1.1rem;font-weight:800;border-bottom:1px solid var(--line);padding:0 0 10px;margin:-1.75rem 2.5rem 8px 0;} /* sube a la fila del botón «« (que está a la derecha) */
+.small-caption{font-size:.92rem;color:var(--muted);margin:0 0 18px;}
 </style>''',unsafe_allow_html=True)
 
 
@@ -88,12 +92,22 @@ html.side-pop [data-testid="stPopoverBody"] {transform:translate(var(--pop-x),va
 # demás filtros. Si no cabe hacia abajo, lo sube lo necesario para que no se corte.
 SIDE_POPOVER_JS='''<script>
 const doc = window.parent.document;
-if (!doc.getElementById('side-pop-script')) {
+if (!doc.getElementById('side-pop-script-v2')) {
   const s = doc.createElement('script');
-  s.id = 'side-pop-script';
+  s.id = 'side-pop-script-v2';
   s.textContent = `
     (function(){
       const root = document.documentElement;
+      // Tema: si el fondo de la app es claro, se pone html.theme-light (el CSS cambia sus colores).
+      function detectTheme(){
+        const app = document.querySelector('.stApp') || document.body;
+        const m = getComputedStyle(app).backgroundColor.match(/[0-9]+/g);
+        if (!m) return;
+        const lum = (0.299*m[0] + 0.587*m[1] + 0.114*m[2]) / 255;
+        root.classList.toggle('theme-light', lum > 0.5);
+      }
+      detectTheme();
+      setInterval(detectTheme, 500);
       function place(){
         const btn = document.querySelector('[data-testid="stPopover"] button[aria-expanded="true"]');
         const body = document.querySelector('[data-testid="stPopoverBody"]');
@@ -143,13 +157,15 @@ def empty_fig(title=None):
 
 
 def style_fig(fig,height=285,margins=None):
+    # Sin template ni colores de letra/cuadrícula fijos: st.plotly_chart usa theme="streamlit"
+    # y los toma del tema claro u oscuro que eligió el usuario.
     fig.update_layout(height=height,margin=margins or dict(l=12,r=10,t=18,b=16),
-      template='plotly_dark',paper_bgcolor='rgba(0,0,0,0)',plot_bgcolor='rgba(0,0,0,0)',
-      font=dict(family='Arial',color=INK,size=12),
+      paper_bgcolor='rgba(0,0,0,0)',plot_bgcolor='rgba(0,0,0,0)',
+      font=dict(size=12),
       legend=dict(orientation='h',yanchor='bottom',y=1.01,xanchor='right',x=1,font=dict(size=11)),
       hovermode='closest')
     fig.update_xaxes(showgrid=False,zeroline=False)
-    fig.update_yaxes(gridcolor='#2B3B54',zeroline=False)
+    fig.update_yaxes(zeroline=False)
     return fig
 
 
@@ -426,7 +442,7 @@ else:
     with k3:
         over=100*plan.excess_units.sum()/plan.stock_actual.sum() if plan.stock_actual.sum() else 0
         st.metric('SOBRESTOCK ESTIMADO',f'{over:.1f}%',help='Unidades por encima del stock ideal / stock registrado en el último mes disponible por producto y región.')
-    st.markdown(f'<div class="notice">{source_tag}. El stock ideal utiliza un margen de seguridad aproximado al nivel de servicio elegido; requiere validar lead times, pedidos en tránsito y ventas perdidas.</div>',unsafe_allow_html=True)
+
     with st.container(border=True):
         st.subheader('Comparación ventas contra forecast por mes')
         # Para comparar meses observados, se genera una referencia estacional desde 2024.
@@ -449,7 +465,6 @@ else:
         fig.add_vline(x=hist.date.max().timestamp()*1000,line_color='#F16363',line_dash='dash',line_width=1.6)
         fig.update_yaxes(title='Unidades',tickformat='~s')
         st.plotly_chart(style_fig(fig,height=280),use_container_width=True,config={'displayModeBar':False})
-        st.caption('La línea punteada muestra una referencia basada en el año anterior; el punto del mes siguiente muestra el pronóstico seleccionado. No son ventas futuras observadas.')
     with st.container(border=True):
         coltitle,download=st.columns([3,1],vertical_alignment='center')
         with coltitle:st.subheader('Plan por producto y región')
@@ -463,7 +478,6 @@ else:
         st.dataframe(shown[cols].sort_values(['Excedente estimado','% Sobrestock'],ascending=False),hide_index=True,use_container_width=True,height=560,
           column_config={'% Sobrestock':st.column_config.ProgressColumn('% Sobrestock',format='%.1f%%',min_value=0,max_value=100),
                          'Días de inventario':st.column_config.NumberColumn('Días de inventario',format='%.0f')})
-    st.caption('Acciones provisionales basadas en reglas editables: Reabastecer si falta stock ideal; Promover si días de inventario exceden el umbral; Revisar envíos si hay exceso > 20%; en otro caso Mantener. No son etiquetas del clasificador K-means.')
     with st.expander('Cómo integrar los modelos ML cuando los recibamos'):
         st.markdown('''**Opción A (recomendada):** sustituir `predict_demand` dentro de `ml_adapter.py` por la inferencia del árbol/XGBoost de su equipo.
 
