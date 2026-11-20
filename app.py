@@ -19,7 +19,7 @@ import streamlit as st
 
 from data_utils import (prepare_data,subset,descriptive_kpis,region_rotation,subcategory_rotation,
                         low_rotation_products,compare_year_growth,build_purchase_plan,
-                        action_for_product,MONTH_NAMES,next_month,cut_history)
+                        action_for_product,MONTH_NAMES,next_month,cut_history,REGION_SHORT,REGION_ORDER)
 
 st.set_page_config(page_title='DanuStore · Inventario y compras',page_icon='📦',layout='wide',initial_sidebar_state='expanded')
 BASE=Path(__file__).resolve().parent
@@ -179,20 +179,24 @@ with st.sidebar:
     st.divider()
 
     all_years=sorted(df.year.unique().tolist())
-    year_choice=st.radio('AÑO',[str(y) for y in all_years]+['Ambos'],
-           index=len(all_years)-1,horizontal=True,key='year')
+    year_options=[str(y) for y in all_years]+['Ambos']
+    year_choice=st.segmented_control('AÑO',year_options,default=year_options[-2],key='year') or year_options[-2]
     sel_years=all_years if year_choice=='Ambos' else [int(year_choice)]
-    region_options=sorted(df.region.unique().tolist())
-    region=st.selectbox('REGIÓN',['Todas las regiones']+region_options,key='region')
+    st.caption('Toca para elegir uno o varios. Sin selección = todos.')
+    # Chips de selección múltiple; lista vacía = sin filtro.
+    region_options=sorted(df.region.unique().tolist(),key=lambda r:REGION_ORDER.index(r) if r in REGION_ORDER else 99)
+    sel_regions=st.pills('REGIÓN',region_options,selection_mode='multi',key='region',
+                         format_func=lambda r:REGION_SHORT.get(r,r))
     categories=sorted(df.category_es.unique().tolist())
-    default_cat='Todas'
-    cat_choice=st.radio('CATEGORÍA',['Todas']+categories,horizontal=True,key='cat')
-    visible_subcats=sorted(df[df.category_es.eq(cat_choice)].subcategory.unique().tolist()) if cat_choice!='Todas' else sorted(df.subcategory.unique().tolist())
-    subcat=st.selectbox('SUBCATEGORÍA',['Todas']+visible_subcats,key='subcat')
+    sel_cats=st.pills('CATEGORÍA',categories,selection_mode='multi',key='cat')
+    visible_subcats=sorted(df[df.category_es.isin(sel_cats)].subcategory.unique().tolist() if sel_cats else df.subcategory.unique().tolist())
+    # Si se quita una categoría, se limpian sus subcategorías para no dejar filtros escondidos.
+    if 'subcat' in st.session_state:
+        st.session_state['subcat']=[s for s in st.session_state['subcat'] if s in visible_subcats]
+    sel_subcats=st.pills('SUBCATEGORÍA',visible_subcats,selection_mode='multi',key='subcat')
     if page=='Ventas e inventario':
-        month_choice=st.selectbox('MES',['Todos los meses']+[f'{MONTH_NAMES[i]} ({i:02d})' for i in range(1,13)],key='month_des')
-        current_month=None
-        if month_choice!='Todos los meses':current_month=int(month_choice.split('(')[1][:2])
+        sel_months=st.pills('MES',list(range(1,13)),selection_mode='multi',key='month_des',
+                            format_func=lambda m:MONTH_NAMES[m])
     else:
         # El corte temporal es explícito para no mostrar el futuro al modelo.
         cut_year=max(sel_years)
@@ -202,10 +206,14 @@ with st.sidebar:
         current_month=st.selectbox('MES ACTUAL (CORTE)',cutoff_options,format_func=lambda m: calendar.month_name[m],index=cutoff_options.index(default_cut),key='cut')
         service=st.radio('NIVEL DE SERVICIO',[90,95,99],index=1,horizontal=True,format_func=lambda x:f'{x}%',key='service')
         promote_days=st.radio('PROMOVER SI HAY MÁS DE',[60,120,180],index=1,horizontal=True,format_func=lambda x:f'{x} días',key='promote')
-    if st.button('Quitar filtros',use_container_width=True):
-        for k in ['year','region','cat','subcat','month_des','cut','service','promote']:
-            if k in st.session_state: del st.session_state[k]
-        st.rerun()
+    def reset_filters():
+        # Se asignan valores vacíos (no se borran) para que los chips también se vean sin seleccionar.
+        for k in ('region','cat','subcat','month_des'):
+            st.session_state[k]=[]
+        st.session_state['year']=year_options[-2]
+        for k in ('cut','service','promote'):
+            st.session_state.pop(k,None)
+    st.button('Quitar filtros',use_container_width=True,on_click=reset_filters)
     st.divider()
     # Carga de archivos escondida en un botón chico al final para no estorbar a los filtros.
     with st.popover('⚙ Cambiar archivos',use_container_width=True):
@@ -218,16 +226,17 @@ with st.sidebar:
 
 forecast_file=st.session_state.get('forecast_upload')
 
-regions=None if region=='Todas las regiones' else [region]
-cats=None if cat_choice=='Todas' else [cat_choice]
-subs=None if subcat=='Todas' else [subcat]
+regions=sel_regions or None
+cats=sel_cats or None
+subs=sel_subcats or None
 
 if page=='Ventas e inventario':
-    data=subset(df,sel_years,regions,cats,subs,[current_month] if current_month else None)
+    months=sorted(sel_months) or None
+    data=subset(df,sel_years,regions,cats,subs,months)
     title_bar('Ventas e inventario','Análisis descriptivo de ventas, inventario y rotación por región y producto')
     if data.empty:st.warning('No hay registros para los filtros seleccionados.');st.stop()
     k=descriptive_kpis(data)
-    growth=compare_year_growth(subset(df,[max(sel_years),max(sel_years)-1],regions,cats,subs,[current_month] if current_month else None),max(sel_years)) if year_choice!='Ambos' else None
+    growth=compare_year_growth(subset(df,[max(sel_years),max(sel_years)-1],regions,cats,subs,months),max(sel_years)) if year_choice!='Ambos' else None
     c1,c2,c3,c4=st.columns(4)
     with c1:st.metric('Δ VENTAS VS AÑO PREVIO',f'{growth:+.1f}%' if growth is not None else '—',help='Variación de unidades vendidas respecto al período equivalente del año anterior.')
     with c2:st.metric('ROTACIÓN DE INVENTARIO',f'{k["rotation"]:.1f}%',help='Unidades vendidas / stock registrado de los períodos seleccionados.')

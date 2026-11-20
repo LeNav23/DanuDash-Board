@@ -8,6 +8,11 @@ from ml_adapter import predict_demand, safety_stock_from_history
 MONTHS = {m.lower():i for i,m in enumerate(calendar.month_name) if i}
 MONTH_NAMES = {i:n for i,n in enumerate(['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic']) if i}
 CATS_ES = {'Fitness Wear':'Deportiva','Casual Wear':'Casual','Accessories':'Accesorios','Footwear':'Calzado'}
+# Nombres cortos para chips y ejes; el orden va de la región más grande a la más chica.
+REGION_SHORT = {'Ciudad de México':'CDMX','Zona Metropolitana de Monterrey':'MTY',
+                'Zona Metropolitana de Guadalajara':'GDL','Bajío':'Bajío','Noroeste':'Noroeste',
+                'Sur':'Sur','Sureste':'Sureste'}
+REGION_ORDER = list(REGION_SHORT)
 
 
 def prepare_data(df: pd.DataFrame) -> pd.DataFrame:
