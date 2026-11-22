@@ -468,15 +468,15 @@ else:
     mname=f'{MONTH_NAMES[plan_month]} {int(p.year.iloc[0])}'
     cards=[
         kpi_card('Acciones para reducir sobrestock','producto-región',f'{k["reducen"]["n"]:,}',
-                 f'{k["Trasladar a otra región"]["n"]:,} trasladar · {k["Descuento"]["n"]:,} descuento',
+                 f'{k["Trasladar a otra región"]["n"]:,} trasladar · {k["Aplicar descuento a la prenda"]["n"]:,} descuento',
                  '','Producto-región con sobrestock en '+mname+' que se pueden resolver trasladando o con descuento.'),
         kpi_card('Trasladar a otra región','producto-región',f'{k["Trasladar a otra región"]["n"]:,}',
                  f'{compact(k["Trasladar a otra región"]["valor"],True)} inmovilizados',
                  '','Sobra stock aquí y el mismo producto está en riesgo de agotado en otra región. Valor a precio de lista.'),
-        kpi_card('Descuento','producto-región',f'{k["Descuento"]["n"]:,}',
-                 f'{compact(k["Descuento"]["valor"],True)} inmovilizados',
+        kpi_card('Descuento','producto-región',f'{k["Aplicar descuento a la prenda"]["n"]:,}',
+                 f'{compact(k["Aplicar descuento a la prenda"]["valor"],True)} inmovilizados',
                  '','Sobra stock y ninguna otra región lo necesita: promover o dar descuento para recuperar el dinero. Valor a precio de lista.'),
-        kpi_card('Reabastecer','producto-región',f'{k["Reabastecer"]["n"]:,}',
+        kpi_card('Reabastecer','producto-región',f'{k["Reabastecer stock"]["n"]:,}',
                  'Riesgo de agotado',
                  '','Producto-región con stock por debajo de lo recomendado.'),
     ]
