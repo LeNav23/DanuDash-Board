@@ -483,17 +483,27 @@ else:
     st.markdown('<div class="kpi-row">'+''.join(cards)+'</div>',unsafe_allow_html=True)
 
     with st.container(border=True):
-        st.subheader(f'Acciones por región · {mname}')
-        by=p.groupby(['region','accion'],observed=True).size().unstack(fill_value=0).reindex(columns=ACTION_ORDER,fill_value=0)
-        by=by.reindex([r for r in REGION_ORDER if r in by.index])
-        colors={'Trasladar a otra región':BLUE,'Descuento':PURPLE,'Reabastecer':STATUS_COLORS['corto'],'Mantener':MUTED}
+        st.subheader('Comparación ventas contra forecast por mes')
+        # Ventas reales de toda la historia (base final) contra el pronóstico del modelo (oct–dic 2025), con los mismos filtros.
+        hist=subset(df,None,regions,cats,subs).groupby('date',as_index=False)['units_sold'].sum().sort_values('date')
+        pf=plan_df
+        if regions: pf=pf[pf.region.isin(regions)]
+        if cats: pf=pf[pf.category_es.isin(cats)]
+        if subs: pf=pf[pf.subcategory.isin(subs)]
+        fc=pf.groupby(['year','mes_num'],as_index=False)['ventas_esperadas'].sum()
+        fc['date']=pd.to_datetime(dict(year=fc.year.astype(int),month=fc.mes_num.astype(int),day=1))
+        fc=fc.sort_values('date')
         fig=go.Figure()
-        for a_ in ACTION_ORDER:
-            fig.add_trace(go.Bar(x=[REGION_SHORT.get(r,r) for r in by.index],y=by[a_],name=a_,marker_color=colors[a_],
-                                 hovertemplate='%{x}: %{y} producto(s) · '+a_+'<extra></extra>'))
-        fig.update_layout(barmode='stack')
-        fig.update_yaxes(title='Productos')
-        st.plotly_chart(style_fig(fig,height=260),use_container_width=True,config={'displayModeBar':False})
+        fig.add_trace(go.Scatter(x=hist.date,y=hist.units_sold,mode='lines+markers',name='Unidades vendidas',line=dict(color=BLUE,width=3)))
+        fig.add_trace(go.Scatter(x=fc.date,y=fc.ventas_esperadas,mode='lines+markers+text',name='Forecast del modelo',
+            line=dict(color=PURPLE,width=3,dash='dot'),marker=dict(color=PURPLE,size=11,symbol='diamond'),
+            text=[compact(v) for v in fc.ventas_esperadas],textposition='top center'))
+        if len(fc):
+            # La línea roja marca dónde termina el entrenamiento: desde ahí es pronóstico.
+            fig.add_vline(x=(fc.date.min()-pd.DateOffset(days=15)).timestamp()*1000,line_color='#F16363',line_dash='dash',line_width=1.6)
+        top=max(hist.units_sold.max(),fc.ventas_esperadas.max() if len(fc) else 0)
+        fig.update_yaxes(title='Unidades',tickformat='~s',range=[hist.units_sold.min()*0.93,top*1.07])  # espacio para las etiquetas
+        st.plotly_chart(style_fig(fig,height=280),use_container_width=True,config={'displayModeBar':False})
 
     shown=p if not sel_actions else p[p.accion.isin(sel_actions)]
     shown=shown.sort_values(['accion','valor_inmovilizado'],ascending=[True,False])
