@@ -242,7 +242,7 @@ def action_for_product(row, threshold_days=120):
 
 
 # ---------- Plan de inventario (Excel que genera el notebook del Random Forest) ----------
-ACTION_ORDER=['Trasladar a otra región','Descuento','Reabastecer','Mantener']
+ACTION_ORDER=['Trasladar a otra región','Aplicar descuento a la prenda','Reabastecer stock','Mantener el nivel de stock']
 PLAN_COLUMNS={'product_id','product_name','category','subcategory','region','year','mes_num','stock',
               'ventas_esperadas','stock_recomendado','valor_inmovilizado','estado','accion'}
 
@@ -268,6 +268,6 @@ def plan_kpis(p: pd.DataFrame) -> dict:
     for a in ACTION_ORDER:
         x=p[p.accion==a]
         out[a]={'n':int(len(x)),'valor':float(x.valor_inmovilizado.sum())}
-    out['reducen']={'n':out['Trasladar a otra región']['n']+out['Descuento']['n'],
-                    'valor':out['Trasladar a otra región']['valor']+out['Descuento']['valor']}
+    out['reducen']={'n':out['Trasladar a otra región']['n']+out['Aplicar descuento a la prenda']['n'],
+                    'valor':out['Trasladar a otra región']['valor']+out['Aplicar descuento a la prenda']['valor']}
     return out
