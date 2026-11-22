@@ -450,7 +450,7 @@ if page=='Ventas e inventario':
                                'Cambio (pts)':st.column_config.NumberColumn('Delta mes ant.',format='%+.1f pts',width=96,help='Puntos de rotación del último mes contra el mes anterior del mismo año')})
     st.caption('Nota: el stock se registra cada mes. Al seleccionar varios meses, los totales corresponden a la suma de observaciones mensuales, no a un inventario físico único.')
 else:
-    title_bar('Plan de inventario por región','Qué hacer con el inventario de cada producto en cada región, según el pronóstico del Random Forest')
+    title_bar('Plan de inventario por región','Plan de inventario para cada producto en cada región, de acuerdo con el pronóstico de ventas')
     if plan_df is None:
         _,mid,_=st.columns([1,1.4,1])
         with mid:
