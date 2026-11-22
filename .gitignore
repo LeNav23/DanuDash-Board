@@ -22,6 +22,7 @@ data/Base_final.parquet
 data/Base_final_v2.xlsx
 data/Base_final_v2.parquet
 data/products.xlsx
+data/Plan_RF_oct_dic_2025.xlsx
 
 # Sistema / editor
 .DS_Store
