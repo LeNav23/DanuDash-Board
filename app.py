@@ -431,8 +431,7 @@ if page=='Ventas e inventario':
                 column_config={'Producto':st.column_config.TextColumn('Producto',width=150),
                                COL_SUBCAT:st.column_config.TextColumn('Subcat.',width=72),
                                '% de rotación':st.column_config.ProgressColumn('Rotación',min_value=0,max_value=100,format='%.0f%%',width=80),
-                               'Cambio (pts)':st.column_config.NumberColumn('Cambio vs mes ant.',format='%+.1f pts',width=96,help='Puntos de rotación del último mes contra el mes anterior del mismo año')})
-    st.caption('Nota: el stock se registra cada mes. Al seleccionar varios meses, los totales corresponden a la suma de observaciones mensuales, no a un inventario físico único.')
+                               'Cambio (pts)':st.column_config.NumberColumn('Delta mes ant.',format='%+.1f pts',width=96,help='Puntos de rotación del último mes contra el mes anterior del mismo año')})
 else:
     cut_year=max(sel_years)
     if forecast_file is not None:
