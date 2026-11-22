@@ -448,7 +448,7 @@ if page=='Ventas e inventario':
                                COL_SUBCAT:st.column_config.TextColumn('Subcat.',width=72),
                                '% de rotación':st.column_config.ProgressColumn('Rotación',min_value=0,max_value=100,format='%.0f%%',width=80),
                                'Cambio (pts)':st.column_config.NumberColumn('Delta mes ant.',format='%+.1f pts',width=96,help='Puntos de rotación del último mes contra el mes anterior del mismo año')})
-    st.caption('Nota: el stock se registra cada mes. Al seleccionar varios meses, los totales corresponden a la suma de observaciones mensuales, no a un inventario físico único.')
+    
 else:
     title_bar('Plan de inventario por región','Plan de inventario para cada producto en cada región, de acuerdo con el pronóstico de ventas')
     if plan_df is None:
