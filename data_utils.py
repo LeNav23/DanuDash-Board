@@ -239,3 +239,35 @@ def action_for_product(row, threshold_days=120):
     if np.isfinite(row['days_inventory']) and row['days_inventory']>=threshold_days: return 'Promover'
     if row['overstock_pct']>=20: return 'Revisar envíos'
     return 'Mantener'
+
+
+# ---------- Plan de inventario (Excel que genera el notebook del Random Forest) ----------
+ACTION_ORDER=['Trasladar a otra región','Descuento','Reabastecer','Mantener']
+PLAN_COLUMNS={'product_id','product_name','category','subcategory','region','year','mes_num','stock',
+              'ventas_esperadas','stock_recomendado','valor_inmovilizado','estado','accion'}
+
+
+def prepare_plan(df: pd.DataFrame) -> pd.DataFrame:
+    """Valida y limpia el Excel Plan_RF. Solo se usan las columnas esenciales."""
+    missing=PLAN_COLUMNS-set(df.columns)
+    if missing: raise ValueError('El plan no contiene estas columnas: '+', '.join(sorted(missing)))
+    d=df[sorted(PLAN_COLUMNS)].copy()
+    for c in ('product_id','year','mes_num','stock','ventas_esperadas','stock_recomendado','valor_inmovilizado'):
+        d[c]=pd.to_numeric(d[c],errors='coerce')
+    d=d.dropna(subset=['product_id','mes_num','stock','stock_recomendado'])
+    d['category_es']=d['category'].replace(CATS_ES)
+    # Sobra (+) o falta (−) contra el stock recomendado.
+    d['diferencia']=(d.stock-d.stock_recomendado).round().astype(int)
+    d['accion']=pd.Categorical(d.accion,categories=ACTION_ORDER,ordered=True)
+    return d
+
+
+def plan_kpis(p: pd.DataFrame) -> dict:
+    """Conteos y valor inmovilizado por acción. Las acciones que reducen sobrestock son trasladar y descuento."""
+    out={}
+    for a in ACTION_ORDER:
+        x=p[p.accion==a]
+        out[a]={'n':int(len(x)),'valor':float(x.valor_inmovilizado.sum())}
+    out['reducen']={'n':out['Trasladar a otra región']['n']+out['Descuento']['n'],
+                    'valor':out['Trasladar a otra región']['valor']+out['Descuento']['valor']}
+    return out
