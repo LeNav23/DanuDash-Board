@@ -132,21 +132,27 @@ def subcategory_rotation(d):
     return r.sort_values('rotation',ascending=False)
 
 
-def low_rotation_products(d,n=10):
-    """Productos con menor rotación Y bajas ventas en el periodo.
+def low_rotation_products(d,n=10,base=None):
+    """Top n productos con menor rotación y bajas ventas en el periodo.
 
-    rotation   = vendidas / stock del periodo (suma de meses).
-    units_sold = unidades vendidas en el periodo (la columna que pidió el profe).
-    unsold     = piezas sin vender en la FOTO del último mes del periodo.
-    Regla: de los 20 productos que menos rotan, los n que menos venden (más baja venta primero).
-    Así todos rotan poco Y venden poco; no entra uno que rota poco pero vende mucho.
+    rotation = vendidas / stock del periodo (suma de meses), en %.
+    delta    = rotación del último mes del periodo menos la del mes anterior DEL MISMO AÑO (en puntos).
+               Es None si el último mes es enero (no hay mes anterior en ese año).
+               Usa `base` (mismos filtros pero con todos los meses) para poder ver el mes anterior.
+    Regla: de los 20 productos que menos rotan, los n que menos venden.
     """
     keys=['product_id','product_name','subcategory']
     r=d.groupby(keys,as_index=False)[['units_sold','stock']].sum()
     r['rotation']=np.where(r.stock>0,100*r.units_sold/r.stock,0)
-    last=d[d.date==d.date.max()]
-    snap=last.assign(unsold=np.maximum(last.stock-last.units_sold,0)).groupby(keys,as_index=False)['unsold'].sum()
-    r=r.merge(snap,on=keys,how='left').fillna({'unsold':0})
+    last=d.date.max()
+    if base is not None and last.month>1:
+        def month_rot(ts):
+            m=base[base.date==ts].groupby('product_id')[['units_sold','stock']].sum()
+            return (100*m.units_sold/m.stock.where(m.stock>0)).rename('rot')
+        cur,prev=month_rot(last),month_rot(pd.Timestamp(year=last.year,month=last.month-1,day=1))
+        r['delta']=r.product_id.map(cur-prev)
+    else:
+        r['delta']=np.nan
     pool=r.sort_values('rotation').head(20)
     return pool.sort_values(['units_sold','rotation']).head(n)
 
@@ -163,20 +169,6 @@ def sold_out_products(d):
         months_sold_out=('all_sold','sum'),months=('all_sold','size'),units_sold=('units_sold','sum'))
     t=t[t.months_sold_out>0]
     return t.sort_values(['months_sold_out','units_sold'],ascending=False)
-
-
-def sold_out_pattern(d):
-    """Dónde se concentran los meses en que un producto vendió TODO su stock.
-
-    Cuenta eventos producto-región-mes (units_sold >= stock) y los reparte por región.
-    Devuelve (total_eventos, total_filas, tabla por región con eventos y % del total).
-    """
-    t=d.assign(all_sold=d.units_sold>=d.stock)
-    by=t.groupby('region',as_index=False).agg(eventos=('all_sold','sum'),filas=('all_sold','size'))
-    total=int(by.eventos.sum())
-    by['pct_del_total']=np.where(total>0,100*by.eventos/total,0)
-    by['pct_de_sus_meses']=np.where(by.filas>0,100*by.eventos/by.filas,0)
-    return total,int(by.filas.sum()),by.sort_values('eventos',ascending=False)
 
 
 def compare_year_growth(d, year:int):

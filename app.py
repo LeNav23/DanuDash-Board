@@ -18,7 +18,7 @@ import plotly.graph_objects as go
 import streamlit as st
 import streamlit.components.v1 as components
 
-from data_utils import (prepare_data,subset,region_rotation,sold_out_products,sold_out_pattern,
+from data_utils import (prepare_data,subset,region_rotation,sold_out_products,
                         low_rotation_products,build_purchase_plan,
                         action_for_product,MONTH_NAMES,next_month,cut_history,REGION_SHORT,REGION_ORDER,
                         kpi_cards,rotation_status,STATUS_LABELS)
@@ -411,34 +411,27 @@ if page=='Ventas e inventario':
             n_all=int((sold.months_sold_out==n_months).sum())
             st.caption(f'{n_all:,} producto-región vendieron todo su stock en los {n_months} meses elegidos' if n_months>1
                        else f'{len(sold):,} producto-región vendieron todo su stock en el mes elegido')
-            # Patrón: en qué regiones se concentran los casos de "vendió todo" (cada caso = un producto-región-mes).
-            total,_,pat=sold_out_pattern(data)
-            if total:
-                top3=pat.head(3)
-                st.caption('Dónde pasa más: '+', '.join(f'{REGION_SHORT.get(r.region,r.region)} {r.pct_del_total:.0f}%' for r in top3.itertuples())
-                           +f' de los {total:,} casos (producto-región-mes).')
             sold=sold.head(10)  # top 10; el total va en la nota de arriba
-            sold=sold.assign(Región=sold.region.map(lambda r:REGION_SHORT.get(r,r)),
-                             Meses=sold.months_sold_out.astype(int).astype(str)+' de '+sold.months.astype(int).astype(str))
-            sold=sold.rename(columns={'product_name':'Producto','units_sold':'Vendidas'})
-            st.dataframe(sold[['Producto',COL_REGION,'Meses','Vendidas']],hide_index=True,use_container_width=True,height=388,
-                column_config={'Producto':st.column_config.TextColumn('Producto',width=140),
-                               COL_REGION:st.column_config.TextColumn(COL_REGION,width=64),
-                               'Meses':st.column_config.TextColumn('Meses todo vendido',width=84,help='Meses en que vendió todo su stock, de los meses elegidos'),
-                               'Vendidas':st.column_config.NumberColumn('Vendidas (uds)',format='localized',width=90)})
+            sold=sold.assign(Región=sold.region.map(lambda r:REGION_SHORT.get(r,r)))
+            sold=sold.rename(columns={'product_name':'Producto','months_sold_out':'Meses con todo vendido','units_sold':'Vendidas'})
+            st.dataframe(sold[['Producto',COL_REGION,'Vendidas']],hide_index=True,use_container_width=True,height=388,
+                column_config={'Producto':st.column_config.TextColumn('Producto',width=150),
+                               COL_REGION:st.column_config.TextColumn(COL_REGION,width=72),
+                               'Vendidas':st.column_config.NumberColumn('Vendidas (uds)',format='localized',width=95)})
     with b:
         with st.container(border=True):
             st.subheader('Top 10 menor rotación y bajas ventas')
-            low=low_rotation_products(data,n=10)
-            last_lbl=f'{MONTH_NAMES[int(data.mes_num[data.date==data.date.max()].iloc[0])]} {data.date.max().year}'
-            st.caption(f'De los 20 que menos rotan, los 10 que menos venden. Sin vender = uds que quedaron en {last_lbl}')
-            low=low.rename(columns={'product_name':'Producto','subcategory':COL_SUBCAT,'units_sold':'Vendidas (uds)','rotation':'% de rotación','unsold':'Sin vender (uds)'})
-            st.dataframe(low[['Producto',COL_SUBCAT,'Vendidas (uds)','% de rotación','Sin vender (uds)']],hide_index=True,use_container_width=True,height=388,
-                column_config={'Producto':st.column_config.TextColumn('Producto',width=140),
-                               COL_SUBCAT:st.column_config.TextColumn('Subcat.',width=64),
-                               'Vendidas (uds)':st.column_config.NumberColumn('Vendidas',format='localized',width=72),
-                               '% de rotación':st.column_config.ProgressColumn('Rotación',min_value=0,max_value=100,format='%.0f%%',width=76),
-                               'Sin vender (uds)':st.column_config.NumberColumn('Sin vender',format='localized',width=72)})
+            low=low_rotation_products(data,n=10,base=subset(df,sel_years,regions,cats,subs))
+            last_d=data.date.max()
+            prev_lbl=MONTH_NAMES[last_d.month-1] if last_d.month>1 else None
+            st.caption(f'De los 20 que menos rotan, los 10 que menos venden. Cambio = {MONTH_NAMES[last_d.month]} vs {prev_lbl} {last_d.year}' if prev_lbl
+                       else 'De los 20 que menos rotan, los 10 que menos venden. Enero no tiene mes anterior en el mismo año.')
+            low=low.rename(columns={'product_name':'Producto','subcategory':COL_SUBCAT,'rotation':'% de rotación','delta':'Cambio (pts)'})
+            st.dataframe(low[['Producto',COL_SUBCAT,'% de rotación','Cambio (pts)']],hide_index=True,use_container_width=True,height=388,
+                column_config={'Producto':st.column_config.TextColumn('Producto',width=150),
+                               COL_SUBCAT:st.column_config.TextColumn('Subcat.',width=72),
+                               '% de rotación':st.column_config.ProgressColumn('Rotación',min_value=0,max_value=100,format='%.0f%%',width=80),
+                               'Cambio (pts)':st.column_config.NumberColumn('Cambio vs mes ant.',format='%+.1f pts',width=96,help='Puntos de rotación del último mes contra el mes anterior del mismo año')})
     st.caption('Nota: el stock se registra cada mes. Al seleccionar varios meses, los totales corresponden a la suma de observaciones mensuales, no a un inventario físico único.')
 else:
     cut_year=max(sel_years)
