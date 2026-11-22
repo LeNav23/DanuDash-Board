@@ -3,9 +3,8 @@
 Ejecutar: streamlit run app.py
 Instalar: pip install -r requirements.txt
 
-El pronóstico por defecto es una BASE DE REFERENCIA (no un ML entrenado).
-Para añadir el ML del equipo, editar ml_adapter.predict_demand o subir CSV
-con columnas product_id, region, year, mes_num, forecast_units.
+El tablero predictivo lee el Excel que genera el notebook del Random Forest
+(Plan_RF_oct_dic_2025.xlsx): pronóstico, stock recomendado y acción ya vienen calculados.
 """
 from __future__ import annotations
 import calendar
@@ -21,11 +20,12 @@ import streamlit.components.v1 as components
 from data_utils import (prepare_data,subset,region_rotation,sold_out_products,
                         low_rotation_products,build_purchase_plan,
                         action_for_product,MONTH_NAMES,next_month,cut_history,REGION_SHORT,REGION_ORDER,
-                        kpi_cards,rotation_status,STATUS_LABELS)
+                        kpi_cards,rotation_status,STATUS_LABELS,prepare_plan,plan_kpis,ACTION_ORDER)
 
 st.set_page_config(page_title='DanuStore · Inventario y compras',page_icon='📦',layout='wide',initial_sidebar_state='expanded')
 BASE=Path(__file__).resolve().parent
 DEFAULT_BOOKS=('Base_final_v2.xlsx', 'Base_final.xlsx')
+PLAN_BOOK='Plan_RF_oct_dic_2025.xlsx'
 BOOK_SNAPSHOT_HASHES={
     'Base_final_v2.xlsx': '75860ab833a29cccc68cf9ed8dc50c4f4f67f6e2ea0d415ef3eb3f5762013853',
     'Base_final.xlsx': '0825dd11fb572fb36a566f2a16343c3d2761017861b44e66260a5fb7751a687a',
@@ -156,6 +156,20 @@ def load_default(book_path: Path, book_version: tuple[int, int]):
     if snapshot.is_file() and sha256(workbook).hexdigest() == BOOK_SNAPSHOT_HASHES.get(book_path.name):
         return prepare_data(pd.read_parquet(snapshot))
     return read_book(workbook)
+
+
+@st.cache_data(show_spinner=False)
+def read_plan(buf:bytes):
+    return prepare_plan(pd.read_excel(BytesIO(buf)))
+
+
+def load_plan():
+    """Orden: archivo subido en esta sesión > copia local en data/ > None (se pide en el tablero)."""
+    if 'plan_upload' in st.session_state:
+        name,buf=st.session_state['plan_upload']
+        return name,read_plan(buf)
+    path=BASE/'data'/PLAN_BOOK
+    return (path.name,read_plan(path.read_bytes())) if path.is_file() else (None,None)
 
 
 def empty_fig(title=None):
@@ -296,6 +310,13 @@ except Exception as exc:
     st.session_state.pop('base_upload',None)
     st.stop()
 
+try:
+    plan_name,plan_df=load_plan()
+except Exception as exc:
+    st.error(f'No se pudo cargar el plan: {exc}')
+    st.session_state.pop('plan_upload',None)
+    plan_name,plan_df=None,None
+
 if df is None:
     # Primera vez sin base local: se pide el archivo una sola vez en la pantalla principal.
     _,mid,_=st.columns([1,1.4,1])
@@ -311,7 +332,7 @@ if df.empty:
 
 with st.sidebar:
     st.markdown('<div class="sidebrand">DanuStore</div>',unsafe_allow_html=True)
-    page=st.radio('TABLERO',['Ventas e inventario','Ventas esperadas e inventario a pedir'],label_visibility='collapsed')
+    page=st.radio('TABLERO',['Ventas e inventario','Plan de inventario por región'],label_visibility='collapsed')
     st.divider()
 
     # Cada filtro es un botón que abre una ventanita (popover) con chips; así todos
@@ -337,8 +358,11 @@ with st.sidebar:
     all_years=sorted(df.year.unique().tolist())
     year_options=[str(y) for y in all_years]+['Ambos']
     st.session_state.setdefault('year',year_options[-2])
-    with st.popover(f'Año: {st.session_state["year"] or year_options[-2]}',use_container_width=True):
-        year_choice=st.segmented_control('Año',year_options,key='year',label_visibility='collapsed') or year_options[-2]
+    if page=='Ventas e inventario':
+        with st.popover(f'Año: {st.session_state["year"] or year_options[-2]}',use_container_width=True):
+            year_choice=st.segmented_control('Año',year_options,key='year',label_visibility='collapsed') or year_options[-2]
+    else:
+        year_choice=year_options[-2]  # el plan es de un solo año; no hay filtro de año
     sel_years=all_years if year_choice=='Ambos' else [int(year_choice)]
     region_options=sorted(df.region.unique().tolist(),key=lambda r:REGION_ORDER.index(r) if r in REGION_ORDER else 99)
     sel_regions=multi_filter(COL_REGION,region_options,'region',fmt=lambda r:REGION_SHORT.get(r,r))
@@ -352,21 +376,16 @@ with st.sidebar:
     if page=='Ventas e inventario':
         sel_months=multi_filter('Mes',list(range(1,13)),'month_des',fmt=lambda m:MONTH_NAMES[m],todos='Todos')
     else:
-        # El corte temporal es explícito para no mostrar el futuro al modelo.
-        cut_year=max(sel_years)
-        max_month=int(df[df.year==cut_year].mes_num.max())
-        cutoff_options=[i for i in range(1,max_month+1)]
-        default_cut=9 if 9 in cutoff_options else max(cutoff_options)
-        # Mismo estilo que los demás filtros: botón con ventanita, pero de una sola opción.
-        current_month=single_filter('Mes de corte',cutoff_options,'cut',default_cut,fmt=lambda m:MONTH_NAMES[m])
-        service=95  # nivel de servicio fijo en 95% (z = 1.645); ya no es filtro
-        promote_days=single_filter('Promover si hay más de',[60,120,180],'promote',120,fmt=lambda x:f'{x} días')
+        # El plan trae solo los meses que predijo el modelo (oct–dic 2025).
+        plan_months=sorted(plan_df.mes_num.unique().astype(int).tolist()) if plan_df is not None else [10,11,12]
+        plan_month=single_filter('Mes del plan',plan_months,'plan_month',plan_months[0],fmt=lambda m:MONTH_NAMES[m])
+        sel_actions=multi_filter(COL_ACTION,ACTION_ORDER,'act',todos='Todas')
     def reset_filters():
         # Se asignan valores vacíos (no se borran) para que los chips también se vean sin seleccionar.
-        for k in ('region','cat','subcat','month_des'):
+        for k in ('region','cat','subcat','month_des','act'):
             st.session_state[k]=[]
         st.session_state['year']=year_options[-2]
-        for k in ('cut','service','promote'):
+        for k in ('plan_month',):
             st.session_state.pop(k,None)
     st.button('Quitar filtros',use_container_width=True,on_click=reset_filters)
     st.divider()
@@ -374,13 +393,10 @@ with st.sidebar:
     with st.popover('⚙ Cambiar archivos',use_container_width=True):
         st.file_uploader('Base de ventas e inventario (.xlsx)',type=['xlsx'],key='base_new',
                          on_change=remember_upload,args=('base_new','base_upload'))
-        st.file_uploader('Forecast de ML (.csv) · opcional',type=['csv'],key='forecast_new',
-                         on_change=remember_upload,args=('forecast_new','forecast_upload'))
-        st.caption('Forecast: columnas product_id, region, year, mes_num, forecast_units.')
-    st.caption(f'Fuente: {source_name}')
+        st.file_uploader('Plan del modelo (.xlsx)',type=['xlsx'],key='plan_new',
+                         on_change=remember_upload,args=('plan_new','plan_upload'))
+    st.caption(f'Fuente: {source_name}'+(f' · {plan_name}' if page!='Ventas e inventario' and plan_name else ''))
     components.html(SIDE_POPOVER_JS,height=0)
-
-forecast_file=st.session_state.get('forecast_upload')
 
 regions=sel_regions or None
 cats=sel_cats or None
@@ -432,87 +448,71 @@ if page=='Ventas e inventario':
                                COL_SUBCAT:st.column_config.TextColumn('Subcat.',width=72),
                                '% de rotación':st.column_config.ProgressColumn('Rotación',min_value=0,max_value=100,format='%.0f%%',width=80),
                                'Cambio (pts)':st.column_config.NumberColumn('Delta mes ant.',format='%+.1f pts',width=96,help='Puntos de rotación del último mes contra el mes anterior del mismo año')})
+    st.caption('Nota: el stock se registra cada mes. Al seleccionar varios meses, los totales corresponden a la suma de observaciones mensuales, no a un inventario físico único.')
 else:
-    cut_year=max(sel_years)
-    if forecast_file is not None:
-        try: forecast_external=pd.read_csv(BytesIO(forecast_file[1]))
-        except Exception as exc:
-            st.error(f'Error en el CSV de forecast: {exc}');st.stop()
-    else:
-        forecast_external=None
-    # Filtro a toda la historia hasta corte; se conservan años previos para los lags.
-    universe=subset(df,None,regions,cats,subs)
-    try:
-        plan,(fy,fm)=build_purchase_plan(universe,cut_year,current_month,service,forecast_external)
-    except Exception as exc:
-        st.error(f'No se pudo calcular el plan: {exc}');st.stop()
-    title_bar('Ventas esperadas e inventario a pedir','')
-    if plan.empty:
-        st.warning('No hay registros con pronóstico para ese período y filtros.');st.stop()
-    plan[COL_ACTION]=plan.apply(lambda r:action_for_product(r,promote_days),axis=1)
-    # El mes del corte puede ser un mes histórico, NO se usa el objetivo como entrada.
-    sales_current=float(universe[(universe.year==cut_year)&(universe.mes_num==current_month)].units_sold.sum())
-    sales_prev=float(universe[(universe.year==cut_year-1)&(universe.mes_num==current_month)].units_sold.sum())
-    growth=(sales_current/sales_prev-1)*100 if sales_prev else None
-    # Ventas esperadas contra lo que se vendió ese mismo mes el año pasado.
-    forecast_total=float(plan.forecast_units.sum())
-    sales_target_ly=float(universe[(universe.year==fy-1)&(universe.mes_num==fm)].units_sold.sum())
-    forecast_vs_ly=(forecast_total/sales_target_ly-1)*100 if sales_target_ly else None
-    # Sobrestock = unidades arriba del stock ideal ÷ stock actual; se compara con el corte del mes anterior.
-    def overstock_pct(p): return 100*p.excess_units.sum()/p.stock_actual.sum() if len(p) and p.stock_actual.sum() else None
-    over=overstock_pct(plan)
-    prev_cut=(cut_year,current_month-1) if current_month>1 else (cut_year-1,12)
-    try: over_prev=overstock_pct(build_purchase_plan(universe,*prev_cut,service,forecast_external)[0])
-    except Exception: over_prev=None
-    mcut=MONTH_NAMES[current_month]
+    title_bar('Plan de inventario por región','Qué hacer con el inventario de cada producto en cada región, según el pronóstico del Random Forest')
+    if plan_df is None:
+        _,mid,_=st.columns([1,1.4,1])
+        with mid:
+            st.file_uploader('Sube el plan del modelo (Plan_RF_oct_dic_2025.xlsx)',type=['xlsx'],key='plan_first',
+                             on_change=remember_upload,args=('plan_first','plan_upload'))
+            st.caption('Es el Excel que genera el notebook del Random Forest. Solo se pide una vez.')
+        st.stop()
+    p=plan_df[plan_df.mes_num==plan_month]
+    if regions: p=p[p.region.isin(regions)]
+    if cats: p=p[p.category_es.isin(cats)]
+    if subs: p=p[p.subcategory.isin(subs)]
+    if p.empty:
+        st.warning('No hay registros para los filtros seleccionados.');st.stop()
+    k=plan_kpis(p)
+    mname=f'{MONTH_NAMES[plan_month]} {int(p.year.iloc[0])}'
     cards=[
-        kpi_card('Ventas vs año anterior',UNIT_PCT_UNITS,big_delta(growth),
-                 f'{mcut} {cut_year}: {sales_current:,.0f} vs {mcut} {cut_year-1}: {sales_prev:,.0f} uds' if sales_prev else f'Sin datos de {cut_year-1}',
-                 '','Ventas del mes de corte contra el mismo mes del año anterior. Verde = vendimos más.'),
-        kpi_card('Ventas esperadas',f'uds en {MONTH_NAMES[fm]} {fy}',f'{forecast_total:,.0f}',
-                 delta_html(forecast_vs_ly,'%',True,f'vs {MONTH_NAMES[fm]} {fy-1} real'),
-                 '','Pronóstico de unidades para el mes siguiente al corte, contra lo vendido ese mes el año pasado.'),
-        kpi_card('Sobrestock estimado','% del stock arriba del ideal',f'{over:.1f}%' if over is not None else '—',
-                 delta_html(over-over_prev if over is not None and over_prev is not None else None,' pts',False,'vs corte anterior'),
-                 '','Unidades arriba del stock ideal ÷ stock actual. Más alto = peor (rojo si sube).'),
+        kpi_card('Acciones para reducir sobrestock','producto-región',f'{k["reducen"]["n"]:,}',
+                 f'{k["Trasladar a otra región"]["n"]:,} trasladar · {k["Descuento"]["n"]:,} descuento',
+                 '','Producto-región con sobrestock en '+mname+' que se pueden resolver trasladando o con descuento.'),
+        kpi_card('Trasladar a otra región','producto-región',f'{k["Trasladar a otra región"]["n"]:,}',
+                 f'{compact(k["Trasladar a otra región"]["valor"],True)} inmovilizados',
+                 '','Sobra stock aquí y el mismo producto está en riesgo de agotado en otra región. Valor a precio de lista.'),
+        kpi_card('Descuento','producto-región',f'{k["Descuento"]["n"]:,}',
+                 f'{compact(k["Descuento"]["valor"],True)} inmovilizados',
+                 '','Sobra stock y ninguna otra región lo necesita: promover o dar descuento para recuperar el dinero. Valor a precio de lista.'),
+        kpi_card('Reabastecer','producto-región',f'{k["Reabastecer"]["n"]:,}',
+                 'Riesgo de agotado',
+                 '','Producto-región con stock por debajo de lo recomendado.'),
     ]
-    st.markdown('<div class="kpi-row" style="grid-template-columns:repeat(3,minmax(0,1fr))">'+''.join(cards)+'</div>',unsafe_allow_html=True)
+    st.markdown('<div class="kpi-row">'+''.join(cards)+'</div>',unsafe_allow_html=True)
 
     with st.container(border=True):
-        st.subheader('Comparación ventas contra forecast por mes')
-        hist=cut_history(universe,cut_year,current_month)
-        historic=hist.groupby(['year','mes_num'],as_index=False)['units_sold'].sum()
-        historic['date']=pd.to_datetime({'year':historic.year,'month':historic.mes_num,'day':1})
-        historic=historic.sort_values('date')
+        st.subheader(f'Acciones por región · {mname}')
+        by=p.groupby(['region','accion'],observed=True).size().unstack(fill_value=0).reindex(columns=ACTION_ORDER,fill_value=0)
+        by=by.reindex([r for r in REGION_ORDER if r in by.index])
+        colors={'Trasladar a otra región':BLUE,'Descuento':PURPLE,'Reabastecer':STATUS_COLORS['corto'],'Mantener':MUTED}
         fig=go.Figure()
-        fig.add_trace(go.Scatter(x=historic.date,y=historic.units_sold,mode='lines+markers',name='Unidades vendidas',line=dict(color=BLUE,width=3)))
-        next_date=pd.Timestamp(year=fy,month=fm,day=1)
-        fig.add_trace(go.Scatter(x=[next_date],y=[plan.forecast_units.sum()],mode='markers+text',name='Forecast siguiente mes',
-            marker=dict(color=PURPLE,size=12,symbol='diamond'),text=[compact(plan.forecast_units.sum())],textposition='top center'))
-        fig.add_vline(x=hist.date.max().timestamp()*1000,line_color='#F16363',line_dash='dash',line_width=1.6)
-        fig.update_yaxes(title='Unidades',tickformat='~s')
-        st.plotly_chart(style_fig(fig,height=280),use_container_width=True,config={'displayModeBar':False})
+        for a_ in ACTION_ORDER:
+            fig.add_trace(go.Bar(x=[REGION_SHORT.get(r,r) for r in by.index],y=by[a_],name=a_,marker_color=colors[a_],
+                                 hovertemplate='%{x}: %{y} producto(s) · '+a_+'<extra></extra>'))
+        fig.update_layout(barmode='stack')
+        fig.update_yaxes(title='Productos')
+        st.plotly_chart(style_fig(fig,height=260),use_container_width=True,config={'displayModeBar':False})
+
+    shown=p if not sel_actions else p[p.accion.isin(sel_actions)]
+    shown=shown.sort_values(['accion','valor_inmovilizado'],ascending=[True,False])
+    shown=shown.assign(Región=shown.region.map(lambda r:REGION_SHORT.get(r,r)))
+    shown=shown.rename(columns={'product_name':'Producto','stock':'Stock actual','ventas_esperadas':'Ventas esperadas',
+                                'stock_recomendado':'Stock recomendado','diferencia':'Sobra (+) / Falta (−)','accion':COL_ACTION})
+    cols=['Producto',COL_REGION,'Stock actual','Ventas esperadas','Stock recomendado','Sobra (+) / Falta (−)',COL_ACTION]
     with st.container(border=True):
         coltitle,download=st.columns([3,1],vertical_alignment='center')
-        with coltitle:st.subheader('Plan por producto y región')
-        plan['region']=plan.region.map(lambda r:REGION_SHORT.get(r,r))  # nombres cortos para que quepan todas las columnas
-        shown=plan.rename(columns={'product_name':'Producto','region':COL_REGION,'subcategory':COL_SUBCAT,'forecast_units':COL_FORECAST,
-                                   'stock_ideal':COL_IDEAL,'stock_actual':'Stock actual','overstock_pct':COL_OVERSTOCK,
-                                   'days_inventory':'Días de inventario','shortfall':'Unidades a comprar','excess_units':COL_EXCESS})
-        cols=['Producto',COL_REGION,COL_SUBCAT,COL_FORECAST,COL_IDEAL,'Stock actual',COL_OVERSTOCK,'Días de inventario','Unidades a comprar',COL_EXCESS,COL_ACTION]
+        with coltitle:st.subheader('Plan de acciones por producto y región')
         with download:
             st.download_button('Descargar plan CSV',data=shown[cols].to_csv(index=False).encode('utf-8-sig'),
-                               file_name=f'DanuStore_plan_{fy}_{fm:02d}.csv',mime='text/csv',use_container_width=True)
-        st.dataframe(shown[cols].sort_values([COL_EXCESS,COL_OVERSTOCK],ascending=False),hide_index=True,use_container_width=True,height=560,
-          # Anchos fijos y encabezados cortos para que se vean las 11 columnas sin scroll de lado.
-          column_config={'Producto':st.column_config.TextColumn('Producto',width=135),
-                         COL_REGION:st.column_config.TextColumn(COL_REGION,width=68),
-                         COL_SUBCAT:st.column_config.TextColumn('Subcat.',width=72),
-                         COL_FORECAST:st.column_config.NumberColumn('Forecast',format='localized',width=72),
-                         COL_IDEAL:st.column_config.NumberColumn(COL_IDEAL,format='localized',width=78),
-                         'Stock actual':st.column_config.NumberColumn('Stock actual',format='localized',width=82),
-                         COL_OVERSTOCK:st.column_config.ProgressColumn(COL_OVERSTOCK,format='%.0f%%',min_value=0,max_value=100,width=100),
-                         'Días de inventario':st.column_config.NumberColumn('Días inv.',format='%.0f',width=62),
-                         'Unidades a comprar':st.column_config.NumberColumn('A comprar',format='localized',width=72),
-                         COL_EXCESS:st.column_config.NumberColumn('Excedente',format='localized',width=76),
-                         COL_ACTION:st.column_config.TextColumn(COL_ACTION,width=105)})
+                               file_name=f'DanuStore_plan_{int(p.year.iloc[0])}_{plan_month:02d}.csv',mime='text/csv',use_container_width=True)
+        st.dataframe(shown[cols],hide_index=True,use_container_width=True,height=520,
+            column_config={'Producto':st.column_config.TextColumn('Producto',width=150),
+                           COL_REGION:st.column_config.TextColumn(COL_REGION,width=72),
+                           'Stock actual':st.column_config.NumberColumn('Stock actual',format='localized',width=90),
+                           'Ventas esperadas':st.column_config.NumberColumn('Ventas esperadas',format='localized',width=105),
+                           'Stock recomendado':st.column_config.NumberColumn('Stock recomendado',format='localized',width=115),
+                           'Sobra (+) / Falta (−)':st.column_config.NumberColumn('Sobra (+) / Falta (−)',format='%+d',width=130),
+                           COL_ACTION:st.column_config.TextColumn(COL_ACTION,width=160)})
+    st.caption('Valores a precio de lista. El pronóstico y el stock recomendado vienen del modelo Random Forest (stock recomendado = ventas esperadas + colchón de seguridad).')
