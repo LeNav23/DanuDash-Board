@@ -36,6 +36,7 @@ STATUS_COLORS={'sobra':'#D9826F','ok':'#7FB38A','corto':'#D4A762'}
 # Textos que se repiten en tablas y tarjetas (una sola definición).
 UNIT_PCT_UNITS='% unidades'
 COL_REGION='Región'
+COL_SOLD='Vendidas'
 COL_SUBCAT='Subcategoría'
 COL_ACTION='Acción'
 COL_FORECAST='Forecast de ventas'
@@ -429,11 +430,11 @@ if page=='Ventas e inventario':
                        else f'{len(sold):,} producto-región vendieron todo su stock en el mes elegido')
             sold=sold.head(10)  # top 10; el total va en la nota de arriba
             sold=sold.assign(Región=sold.region.map(lambda r:REGION_SHORT.get(r,r)))
-            sold=sold.rename(columns={'product_name':'Producto','months_sold_out':'Meses con todo vendido','units_sold':'Vendidas'})
-            st.dataframe(sold[['Producto',COL_REGION,'Vendidas']],hide_index=True,use_container_width=True,height=388,
+            sold=sold.rename(columns={'product_name':'Producto','months_sold_out':'Meses con todo vendido','units_sold':COL_SOLD})
+            st.dataframe(sold[['Producto',COL_REGION,COL_SOLD]],hide_index=True,use_container_width=True,height=388,
                 column_config={'Producto':st.column_config.TextColumn('Producto',width=150),
                                COL_REGION:st.column_config.TextColumn(COL_REGION,width=72),
-                               'Vendidas':st.column_config.NumberColumn('Vendidas (uds)',format='localized',width=95)})
+                               COL_SOLD:st.column_config.NumberColumn('Vendidas (uds)',format='localized',width=95)})
     with b:
         with st.container(border=True):
             st.subheader('Top 10 menor rotación y bajas ventas')
@@ -442,12 +443,13 @@ if page=='Ventas e inventario':
             prev_lbl=MONTH_NAMES[last_d.month-1] if last_d.month>1 else None
             st.caption(f'De los 20 que menos rotan, los 10 que menos venden. Cambio = {MONTH_NAMES[last_d.month]} vs {prev_lbl} {last_d.year}' if prev_lbl
                        else 'De los 20 que menos rotan, los 10 que menos venden. Enero no tiene mes anterior en el mismo año.')
-            low=low.rename(columns={'product_name':'Producto','subcategory':COL_SUBCAT,'rotation':'% de rotación','delta':'Cambio (pts)'})
-            st.dataframe(low[['Producto',COL_SUBCAT,'% de rotación','Cambio (pts)']],hide_index=True,use_container_width=True,height=388,
-                column_config={'Producto':st.column_config.TextColumn('Producto',width=150),
-                               COL_SUBCAT:st.column_config.TextColumn('Subcat.',width=72),
-                               '% de rotación':st.column_config.ProgressColumn('Rotación',min_value=0,max_value=100,format='%.0f%%',width=80),
-                               'Cambio (pts)':st.column_config.NumberColumn('Delta mes ant.',format='%+.1f pts',width=96,help='Puntos de rotación del último mes contra el mes anterior del mismo año')})
+            low=low.rename(columns={'product_name':'Producto','subcategory':COL_SUBCAT,'rotation':'% de rotación','delta':'Cambio (pts)','units_sold':COL_SOLD})
+            st.dataframe(low[['Producto',COL_SUBCAT,COL_SOLD,'% de rotación','Cambio (pts)']],hide_index=True,use_container_width=True,height=388,
+                column_config={'Producto':st.column_config.TextColumn('Producto',width=138),
+                               COL_SUBCAT:st.column_config.TextColumn('Subcat.',width=68),
+                               COL_SOLD:st.column_config.NumberColumn('Vendidas (uds)',format='localized',width=88),
+                               '% de rotación':st.column_config.ProgressColumn('Rotación',min_value=0,max_value=100,format='%.0f%%',width=76),
+                               'Cambio (pts)':st.column_config.NumberColumn('Delta mes ant.',format='%+.1f pts',width=86,help='Puntos de rotación del último mes contra el mes anterior del mismo año')})
     
 else:
     title_bar('Plan de inventario por región','Plan de inventario para cada producto en cada región, de acuerdo con el pronóstico de ventas')
