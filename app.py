@@ -34,6 +34,7 @@ BLUE='#6F9CF2'; MUTED='#8A97AB'; PURPLE='#A98BEB'  # se leen bien en tema claro 
 # Colores cálidos y suaves (no chillones) para el semáforo; los mismos tonos que las tarjetas KPI.
 STATUS_COLORS={'sobra':'#D9826F','ok':'#7FB38A','corto':'#D4A762'}
 # Textos que se repiten en tablas y tarjetas (una sola definición).
+PAGE_SALES='Ventas e inventario'
 UNIT_PCT_UNITS='% unidades'
 COL_REGION='Región'
 COL_SOLD='Vendidas'
@@ -50,6 +51,11 @@ st.markdown('''<style>
 :root {--card:#172235;--line:#2B3B54;--muted:#A9B7CC;--good:#86BF8F;--bad:#E3836F;}
 html.theme-light {--card:#FFFFFF;--line:#D3DBE7;--muted:#5A6880;--good:#3F8A55;--bad:#C0533D;}
 [data-testid="stHeader"] {background:transparent;}
+/* El header es invisible pero queda encima de las pestañas: deja pasar los clics, menos en sus botones. */
+[data-testid="stHeader"], [data-testid="stHeader"] * {pointer-events:none;}
+[data-testid="stHeader"] :is(button,a,[role="button"]), [data-testid="stHeader"] :is(button,a,[role="button"]) * {pointer-events:auto;}
+/* Con la barra lateral cerrada, deja lugar al botón para abrirla. */
+body:has([data-testid="stExpandSidebarButton"]) .st-key-page_tabs {padding-left:2.75rem;}
 [data-testid="stSidebar"] {border-right:1px solid var(--line);}
 .block-container {padding:.35rem 1rem 1.4rem;max-width:100%;}
 /* Barra lateral: se quita casi todo el espacio vacío de arriba (franja del botón para cerrarla). */
@@ -69,6 +75,17 @@ h3 {font-size:1.05rem !important;font-weight:700 !important;}
 .stDownloadButton button {border-radius:8px;}
 [data-testid="stSelectbox"] label,[data-testid="stMultiSelect"] label {font-size:.75rem;font-weight:700;letter-spacing:.025em;}
 [data-testid="stRadio"] label {font-size:.75rem;font-weight:700;}
+/* Pestañas de tablero, tipo hojas de Excel: se esconde el círculo del radio. */
+.st-key-page_tabs, .st-key-page_tabs [data-testid="stRadio"] {width:100% !important;}
+.st-key-page_tabs [role="radiogroup"] {gap:4px;width:100%;border-bottom:1px solid var(--line);flex-wrap:wrap;}
+.st-key-page_tabs [role="radiogroup"] label {margin:0 0 -1px;padding:7px 18px;background:transparent;border:1px solid transparent;border-top:3px solid transparent;border-radius:8px 8px 0 0;cursor:pointer;}
+/* Dos selectores: Streamlit viejo y nuevo acomodan el círculo distinto. */
+.st-key-page_tabs label > div:first-child, .st-key-page_tabs label div:has(+ [data-testid="stMarkdownContainer"]) {display:none;}
+.st-key-page_tabs [role="radiogroup"] label p {font-size:.9rem;font-weight:700;color:var(--muted);}
+.st-key-page_tabs [role="radiogroup"] label:hover {background:var(--card);}
+.st-key-page_tabs [role="radiogroup"] label:has(input:checked) {background:var(--card);border-color:var(--line);border-top-color:#6F9CF2;border-bottom-color:var(--card);}
+.st-key-page_tabs [role="radiogroup"] label:has(input:checked) p {color:inherit;}
+.st-key-page_tabs [role="radiogroup"] label:has(input:focus-visible) p {text-decoration:underline;text-underline-offset:4px;}
 footer {visibility:hidden;}
 /* Tarjetas KPI. Colores cálidos y suaves: verde salvia = bueno, terracota = malo. */
 .kpi-row {display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:.5rem;margin-bottom:16px;} /* compensa el -16px que Streamlit le pone al bloque */
@@ -331,10 +348,12 @@ if df.empty:
     st.warning('La base de datos no contiene registros válidos.')
     st.stop()
 
+# Pestañas para cambiar de tablero (es un radio; el CSS de .st-key-page_tabs le da forma de pestaña).
+page=st.radio('Tablero',[PAGE_SALES,'Plan de inventario por región'],key='page_tabs',
+              horizontal=True,label_visibility='collapsed')
+
 with st.sidebar:
     st.markdown('<div class="sidebrand">DanuStore</div>',unsafe_allow_html=True)
-    page=st.radio('TABLERO',['Ventas e inventario','Plan de inventario por región'],label_visibility='collapsed')
-    st.divider()
 
     # Cada filtro es un botón que abre una ventanita (popover) con chips; así todos
     # los filtros caben en la barra sin scroll. El botón muestra lo que está elegido.
@@ -359,7 +378,7 @@ with st.sidebar:
     all_years=sorted(df.year.unique().tolist())
     year_options=[str(y) for y in all_years]+['Ambos']
     st.session_state.setdefault('year',year_options[-2])
-    if page=='Ventas e inventario':
+    if page==PAGE_SALES:
         with st.popover(f'Año: {st.session_state["year"] or year_options[-2]}',use_container_width=True):
             year_choice=st.segmented_control('Año',year_options,key='year',label_visibility='collapsed') or year_options[-2]
     else:
@@ -374,7 +393,7 @@ with st.sidebar:
     if 'subcat' in st.session_state:
         st.session_state['subcat']=[s for s in st.session_state['subcat'] if s in visible_subcats]
     sel_subcats=multi_filter(COL_SUBCAT,visible_subcats,'subcat')
-    if page=='Ventas e inventario':
+    if page==PAGE_SALES:
         sel_months=multi_filter('Mes',list(range(1,13)),'month_des',fmt=lambda m:MONTH_NAMES[m],todos='Todos')
     else:
         # El plan trae solo los meses que predijo el modelo (oct–dic 2025).
@@ -396,17 +415,17 @@ with st.sidebar:
                          on_change=remember_upload,args=('base_new','base_upload'))
         st.file_uploader('Plan del modelo (.xlsx)',type=['xlsx'],key='plan_new',
                          on_change=remember_upload,args=('plan_new','plan_upload'))
-    st.caption(f'Fuente: {source_name}'+(f' · {plan_name}' if page!='Ventas e inventario' and plan_name else ''))
+    st.caption(f'Fuente: {source_name}'+(f' · {plan_name}' if page!=PAGE_SALES and plan_name else ''))
     components.html(SIDE_POPOVER_JS,height=0)
 
 regions=sel_regions or None
 cats=sel_cats or None
 subs=sel_subcats or None
 
-if page=='Ventas e inventario':
+if page==PAGE_SALES:
     months=sorted(sel_months) or None
     data=subset(df,sel_years,regions,cats,subs,months)
-    title_bar('Ventas e inventario','Análisis descriptivo de ventas, inventario y rotación por región y producto')
+    title_bar(PAGE_SALES,'Análisis descriptivo de ventas, inventario y rotación por región y producto')
     if data.empty:st.warning('No hay registros para los filtros seleccionados.');st.stop()
     k=kpi_cards(subset(df,None,regions,cats,subs),max(sel_years),months)
     render_kpi_cards(k)
