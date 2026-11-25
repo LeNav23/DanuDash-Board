@@ -20,7 +20,8 @@ import streamlit.components.v1 as components
 from data_utils import (prepare_data,subset,region_rotation,sold_out_products,
                         low_rotation_products,build_purchase_plan,
                         action_for_product,MONTH_NAMES,next_month,cut_history,REGION_SHORT,REGION_ORDER,
-                        kpi_cards,rotation_status,STATUS_LABELS,prepare_plan,plan_kpis,ACTION_ORDER)
+                        kpi_cards,rotation_status,STATUS_LABELS,prepare_plan,plan_kpis,ACTION_ORDER,
+                        transfer_plan,transfer_routes,forecast_vs_real,FLETE_MIN,FLETE_MAX,PIEZAS_POR_VIAJE)
 
 st.set_page_config(page_title='DanuStore · Inventario y compras',page_icon='📦',layout='wide',initial_sidebar_state='expanded')
 BASE=Path(__file__).resolve().parent
@@ -99,7 +100,8 @@ footer {visibility:hidden;}
 .kpi-good {color:var(--good);font-weight:700;}
 .kpi-bad {color:var(--bad);font-weight:700;}
 .kpi-muted {color:var(--muted);}
-@media (max-width:900px){.kpi-row{grid-template-columns:repeat(2,minmax(0,1fr));}}
+.kpi-row.five {grid-template-columns:repeat(5,minmax(0,1fr));}
+@media (max-width:900px){.kpi-row,.kpi-row.five{grid-template-columns:repeat(2,minmax(0,1fr));}}
 /* Ventanitas de filtros: lista vertical angosta, como un menú, en vez de una fila larga. */
 [data-testid="stPopoverBody"]:has([data-testid="stButtonGroup"]) {width:230px !important;min-width:230px !important;max-height:70vh;overflow-y:auto;}
 [data-testid="stPopoverBody"] [data-testid="stElementContainer"]:has([data-testid="stButtonGroup"]),
@@ -291,8 +293,23 @@ def render_kpi_cards(k):
                  delta_html(k['unsold_change'],'%',False,f'vs {mlast} {y-1}'),
                  f'Foto de {mlast} {y}',
                  'Foto del último mes elegido: (stock − vendidas) × precio de lista. No es costo. Más alto = peor (rojo si sube).'),
+        kpi_card('Inventario disponible','unidades en stock',uds(k['stock_last']),
+                 delta_html(k['stock_change'],'%',False,f'vs {mlast} {y-1}'),
+                 f'Foto de {mlast} {y}',
+                 'Total de piezas en stock en el último mes elegido (todas las regiones y productos filtrados), contra el mismo mes del año anterior.'),
     ]
-    st.markdown('<div class="kpi-row">'+''.join(cards)+'</div>',unsafe_allow_html=True)
+    st.markdown('<div class="kpi-row five">'+''.join(cards)+'</div>',unsafe_allow_html=True)
+
+
+def fmt_int(v):
+    """Enteros con coma de miles (1,234), sin depender del idioma del navegador."""
+    return '—' if pd.isna(v) else f'{v:,.0f}'
+
+
+def delta_color(v):
+    """Texto verde si la rotación subió, terracota si bajó (mismos tonos que las tarjetas)."""
+    if pd.isna(v) or abs(v)<0.05: return ''
+    return 'color:#4E9A63;font-weight:700' if v>0 else 'color:#C9654F;font-weight:700'
 
 
 def title_bar(title,subtitle):
@@ -447,13 +464,16 @@ if page==PAGE_SALES:
             n_all=int((sold.months_sold_out==n_months).sum())
             st.caption(f'{n_all:,} producto-región vendieron todo su stock en los {n_months} meses elegidos' if n_months>1
                        else f'{len(sold):,} producto-región vendieron todo su stock en el mes elegido')
-            sold=sold.head(10)  # top 10; el total va en la nota de arriba
+            # Top 10 (más meses con todo vendido) y se muestran ordenados de más a menos unidades vendidas.
+            sold=sold.head(10).sort_values('units_sold',ascending=False)
             sold=sold.assign(Región=sold.region.map(lambda r:REGION_SHORT.get(r,r)))
             sold=sold.rename(columns={'product_name':'Producto','months_sold_out':'Meses con todo vendido','units_sold':COL_SOLD})
-            st.dataframe(sold[['Producto',COL_REGION,COL_SOLD]],hide_index=True,use_container_width=True,height=388,
+            cols_sold=['Producto',COL_REGION,COL_SOLD] if n_months==1 else ['Producto',COL_REGION,'Meses con todo vendido',COL_SOLD]
+            st.dataframe(sold[cols_sold].style.format({COL_SOLD:fmt_int}),hide_index=True,use_container_width=True,height=388,
                 column_config={'Producto':st.column_config.TextColumn('Producto',width=150),
-                               COL_REGION:st.column_config.TextColumn(COL_REGION,width=72),
-                               COL_SOLD:st.column_config.NumberColumn('Vendidas (uds)',format='localized',width=95)})
+                               COL_REGION:st.column_config.TextColumn(COL_REGION,width=72,alignment='center'),
+                               'Meses con todo vendido':st.column_config.NumberColumn('Meses',format='%d',width=60,alignment='center',help='Meses en los que vendió todo su stock'),
+                               COL_SOLD:st.column_config.NumberColumn('Vendidas (uds)',width=95,alignment='center')})
     with b:
         with st.container(border=True):
             st.subheader('Top 10 menor rotación y bajas ventas')
@@ -463,12 +483,17 @@ if page==PAGE_SALES:
             st.caption(f'De los 20 que menos rotan, los 10 que menos venden. Cambio = {MONTH_NAMES[last_d.month]} vs {prev_lbl} {last_d.year}' if prev_lbl
                        else 'De los 20 que menos rotan, los 10 que menos venden. Enero no tiene mes anterior en el mismo año.')
             low=low.rename(columns={'product_name':'Producto','subcategory':COL_SUBCAT,'rotation':'% de rotación','delta':'Cambio (pts)','units_sold':COL_SOLD})
-            st.dataframe(low[['Producto',COL_SUBCAT,COL_SOLD,'% de rotación','Cambio (pts)']],hide_index=True,use_container_width=True,height=388,
+            # Ordenada por rotación (menor a mayor) y la rotación va al final. El delta va en verde (subió) o terracota (bajó).
+            low_cols=['Producto',COL_SUBCAT,COL_SOLD,'Cambio (pts)','% de rotación']
+            low_style=(low[low_cols].style
+                       .format({COL_SOLD:fmt_int,'Cambio (pts)':lambda v:'—' if pd.isna(v) else f'{v:+.1f} pts'})
+                       .map(delta_color,subset=['Cambio (pts)']))
+            st.dataframe(low_style,hide_index=True,use_container_width=True,height=388,
                 column_config={'Producto':st.column_config.TextColumn('Producto',width=138),
-                               COL_SUBCAT:st.column_config.TextColumn('Subcat.',width=68),
-                               COL_SOLD:st.column_config.NumberColumn('Vendidas (uds)',format='localized',width=88),
-                               '% de rotación':st.column_config.ProgressColumn('Rotación',min_value=0,max_value=100,format='%.0f%%',width=76),
-                               'Cambio (pts)':st.column_config.NumberColumn('Delta mes ant.',format='%+.1f pts',width=86,help='Puntos de rotación del último mes contra el mes anterior del mismo año')})
+                               COL_SUBCAT:st.column_config.TextColumn('Subcat.',width=68,alignment='center'),
+                               COL_SOLD:st.column_config.NumberColumn('Vendidas (uds)',width=88,alignment='center'),
+                               'Cambio (pts)':st.column_config.NumberColumn('Delta mes ant.',width=86,alignment='center',help='Puntos de rotación del último mes contra el mes anterior del mismo año'),
+                               '% de rotación':st.column_config.ProgressColumn('Rotación',min_value=0,max_value=100,format='%.0f%%',width=76)})
     
 else:
     title_bar('Plan de inventario por región','Plan de inventario para cada producto en cada región, de acuerdo con el pronóstico de ventas')
@@ -486,11 +511,17 @@ else:
     if p.empty:
         st.warning('No hay registros para los filtros seleccionados.');st.stop()
     k=plan_kpis(p)
-    mname=f'{MONTH_NAMES[plan_month]} {int(p.year.iloc[0])}'
+    plan_year=int(p.year.iloc[0])
+    mname=f'{MONTH_NAMES[plan_month]} {plan_year}'
+    # Forecast del mes contra ventas reales del mes anterior y del mismo mes del año pasado (mismos filtros).
+    hist_f=subset(df,None,regions,cats,subs)
+    fvr=forecast_vs_real(p,hist_f,plan_year,plan_month)  # fórmula en data_utils (un solo lugar)
+    fc_total,pm_,real_prev,vs_prev,vs_ly=fvr['forecast'],fvr['prev_m'],fvr['real_prev'],fvr['vs_prev'],fvr['vs_ly']
     cards=[
-        kpi_card('Acciones para reducir sobrestock','producto-región',f'{k["reducen"]["n"]:,}',
-                 f'{k["Trasladar a otra región"]["n"]:,} trasladar · {k["Aplicar descuento a la prenda"]["n"]:,} descuento',
-                 '','Producto-región con sobrestock en '+mname+' que se pueden resolver trasladando o con descuento.'),
+        kpi_card('Forecast vs mes anterior',f'% unidades · {mname}',big_delta(vs_prev),
+                 f'<span style="white-space:normal">{fc_total:,.0f} vs {MONTH_NAMES[pm_]}: {real_prev:,.0f} uds<br>'+delta_html(vs_ly,'%',True,f'vs {MONTH_NAMES[plan_month]} {plan_year-1}')+'</span>'
+                 if real_prev else f'{fc_total:,.0f} uds pronosticadas',
+                 '','Unidades que pronostica el modelo para '+mname+' contra las ventas reales del mes anterior y del mismo mes del año pasado. Verde = se espera vender más.'),
         kpi_card('Trasladar a otra región','producto-región',f'{k["Trasladar a otra región"]["n"]:,}',
                  f'{compact(k["Trasladar a otra región"]["valor"],True)} inmovilizados',
                  '','Sobra stock aquí y el mismo producto está en riesgo de agotado en otra región. Valor a precio de lista.'),
@@ -506,7 +537,7 @@ else:
     with st.container(border=True):
         st.subheader('Comparación ventas contra forecast por mes')
         # Ventas reales de toda la historia (base final) contra el pronóstico del modelo (oct–dic 2025), con los mismos filtros.
-        hist=subset(df,None,regions,cats,subs).groupby('date',as_index=False)['units_sold'].sum().sort_values('date')
+        hist=hist_f.groupby('date',as_index=False)['units_sold'].sum().sort_values('date')
         pf=plan_df
         if regions: pf=pf[pf.region.isin(regions)]
         if cats: pf=pf[pf.category_es.isin(cats)]
@@ -514,6 +545,8 @@ else:
         fc=pf.groupby(['year','mes_num'],as_index=False)['ventas_esperadas'].sum()
         fc['date']=pd.to_datetime(dict(year=fc.year.astype(int),month=fc.mes_num.astype(int),day=1))
         fc=fc.sort_values('date')
+        # En los meses pronosticados solo se muestra el forecast (sin las ventas reales).
+        if len(fc): hist=hist[hist.date<fc.date.min()]
         fig=go.Figure()
         fig.add_trace(go.Scatter(x=hist.date,y=hist.units_sold,mode='lines+markers',name='Unidades vendidas',line=dict(color=BLUE,width=3)))
         fig.add_trace(go.Scatter(x=fc.date,y=fc.ventas_esperadas,mode='lines+markers+text',name='Forecast del modelo',
@@ -524,26 +557,70 @@ else:
             fig.add_vline(x=(fc.date.min()-pd.DateOffset(days=15)).timestamp()*1000,line_color='#F16363',line_dash='dash',line_width=1.6)
         top=max(hist.units_sold.max(),fc.ventas_esperadas.max() if len(fc) else 0)
         fig.update_yaxes(title='Unidades',tickformat='~s',range=[hist.units_sold.min()*0.93,top*1.07])  # espacio para las etiquetas
-        st.plotly_chart(style_fig(fig,height=280),use_container_width=True,config={'displayModeBar':False})
+        fig=style_fig(fig,height=300)
+        # Eje X por mes (Ene, Feb, ...; el año solo en enero) y termina en el último mes pronosticado (sin Ene 2026).
+        all_dates=pd.concat([hist.date,fc.date]).drop_duplicates().sort_values()
+        if len(all_dates):
+            fig.update_xaxes(tickvals=all_dates,ticktext=[f'{MONTH_NAMES[d.month]}<br>{d.year}' if d.month==1 or i==0 else MONTH_NAMES[d.month] for i,d in enumerate(all_dates)],
+                             range=[all_dates.min()-pd.DateOffset(days=15),all_dates.max()+pd.DateOffset(days=15)])
+        # Leyendas de los ejes más grandes y en negritas para que resalten.
+        fig.update_xaxes(title=dict(text='<b>Mes</b>',font=dict(size=14)),tickfont=dict(size=13))
+        fig.update_yaxes(title=dict(text='<b>Unidades</b>',font=dict(size=14)),tickfont=dict(size=13))
+        st.plotly_chart(fig,use_container_width=True,config={'displayModeBar':False})
+
+    # ---- Traslados: a qué región se va lo que sobra y cuánto costaría el flete ----
+    # Se calcula con TODO el plan del mes (el destino puede ser una región que no está filtrada).
+    tr=transfer_plan(plan_df[plan_df.mes_num==plan_month])
+    if len(tr):
+        info=plan_df[['product_id','category_es','subcategory']].drop_duplicates('product_id')
+        tr=tr.merge(info,on='product_id',how='left')
+        if regions: tr=tr[tr.origen.isin(regions)|tr.destino.isin(regions)]
+        if cats: tr=tr[tr.category_es.isin(cats)]
+        if subs: tr=tr[tr.subcategory.isin(subs)]
+    routes=transfer_routes(tr)
+    with st.container(border=True):
+        st.subheader('Traslados entre regiones')
+        if routes.empty:
+            st.caption('No hay traslados para los filtros seleccionados.')
+        else:
+            u,v,trips=int(routes.unidades.sum()),float(routes.valor.sum()),int(routes.viajes.sum())
+            st.caption(f'Se mueven {u:,} piezas ({compact(v,True)} a precio de lista) en {trips} viaje(s). '
+                       f'Flete estimado: {compact(routes.flete_min.sum(),True)} – {compact(routes.flete_max.sum(),True)} '
+                       f'(${FLETE_MIN/1000:.0f} mil – ${FLETE_MAX/1000:.0f} mil por viaje de zona a zona, ~{PIEZAS_POR_VIAJE:,} piezas por viaje, ropa ligera).')
+            rt=routes.assign(Origen=routes.origen.map(lambda r:REGION_SHORT.get(r,r)),Destino=routes.destino.map(lambda r:REGION_SHORT.get(r,r)),
+                             Flete=[f'{compact(a,True)} – {compact(b,True)}' for a,b in zip(routes.flete_min,routes.flete_max)])
+            rt=rt.rename(columns={'productos':'Productos','unidades':'Piezas','valor':'Valor que se mueve','viajes':'Viajes'})
+            rcols=['Origen','Destino','Productos','Piezas','Valor que se mueve','Viajes','Flete']
+            st.dataframe(rt[rcols].style.format({'Productos':fmt_int,'Piezas':fmt_int,'Viajes':fmt_int,'Valor que se mueve':lambda x:'$'+fmt_int(x)}),
+                hide_index=True,use_container_width=True,height=min(36+35*len(rt),330),
+                column_config={c:st.column_config.Column(c,alignment='center') for c in rcols})
+    # Destino de cada producto-región que se traslada: "MTY (120), GDL (40)".
+    dest=(tr.assign(txt=tr.destino.map(lambda r:REGION_SHORT.get(r,r))+' ('+tr.unidades.map(fmt_int)+')')
+            .groupby(['product_id','origen']).txt.agg(', '.join)) if len(tr) else pd.Series(dtype=str)
+    p=p.assign(destino=[dest.get((a,b),'') for a,b in zip(p.product_id,p.region)])
 
     shown=p if not sel_actions else p[p.accion.isin(sel_actions)]
     shown=shown.sort_values(['accion','valor_inmovilizado'],ascending=[True,False])
     shown=shown.assign(Región=shown.region.map(lambda r:REGION_SHORT.get(r,r)))
     shown=shown.rename(columns={'product_name':'Producto','stock':'Stock actual','ventas_esperadas':'Ventas esperadas',
-                                'stock_recomendado':'Stock recomendado','diferencia':'Sobra (+) / Falta (−)','accion':COL_ACTION})
-    cols=['Producto',COL_REGION,'Stock actual','Ventas esperadas','Stock recomendado','Sobra (+) / Falta (−)',COL_ACTION]
+                                'stock_recomendado':'Stock recomendado','diferencia':'Sobra (+) / Falta (−)','accion':COL_ACTION,'destino':'Enviar a (piezas)'})
+    cols=['Producto',COL_REGION,'Stock actual','Ventas esperadas','Stock recomendado','Sobra (+) / Falta (−)',COL_ACTION,'Enviar a (piezas)']
     with st.container(border=True):
         coltitle,download=st.columns([3,1],vertical_alignment='center')
         with coltitle:st.subheader('Plan de acciones por producto y región')
         with download:
             st.download_button('Descargar plan CSV',data=shown[cols].to_csv(index=False).encode('utf-8-sig'),
                                file_name=f'DanuStore_plan_{int(p.year.iloc[0])}_{plan_month:02d}.csv',mime='text/csv',use_container_width=True)
-        st.dataframe(shown[cols],hide_index=True,use_container_width=True,height=520,
+        num_fmt={c:fmt_int for c in ('Stock actual','Ventas esperadas','Stock recomendado')}
+        num_fmt['Sobra (+) / Falta (−)']=lambda v:f'{v:+,.0f}'
+        st.dataframe(shown[cols].style.format(num_fmt),hide_index=True,use_container_width=True,height=520,
             column_config={'Producto':st.column_config.TextColumn('Producto',width=150),
-                           COL_REGION:st.column_config.TextColumn(COL_REGION,width=72),
-                           'Stock actual':st.column_config.NumberColumn('Stock actual',format='localized',width=90),
-                           'Ventas esperadas':st.column_config.NumberColumn('Ventas esperadas',format='localized',width=105),
-                           'Stock recomendado':st.column_config.NumberColumn('Stock recomendado',format='localized',width=115),
-                           'Sobra (+) / Falta (−)':st.column_config.NumberColumn('Sobra (+) / Falta (−)',format='%+d',width=130),
-                           COL_ACTION:st.column_config.TextColumn(COL_ACTION,width=160)})
+                           COL_REGION:st.column_config.TextColumn(COL_REGION,width=72,alignment='center'),
+                           'Stock actual':st.column_config.NumberColumn('Stock actual',width=90,alignment='center'),
+                           'Ventas esperadas':st.column_config.NumberColumn('Ventas esperadas',width=105,alignment='center'),
+                           'Stock recomendado':st.column_config.NumberColumn('Stock recomendado',width=115,alignment='center'),
+                           'Sobra (+) / Falta (−)':st.column_config.NumberColumn('Sobra (+) / Falta (−)',width=130,alignment='center'),
+                           COL_ACTION:st.column_config.TextColumn(COL_ACTION,width=160,alignment='center'),
+                           'Enviar a (piezas)':st.column_config.TextColumn('Enviar a (piezas)',width=150,alignment='center',
+                               help='Solo para «Trasladar»: región destino y piezas. Se manda lo que le falta a la otra región; el resto se queda.')})
     st.caption('Valores a precio de lista. El pronóstico y el stock recomendado vienen del modelo Random Forest (stock recomendado = ventas esperadas + colchón de seguridad).')
