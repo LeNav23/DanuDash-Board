@@ -287,10 +287,10 @@ def render_kpi_cards(k):
                  delta_html(k['rotation_delta'],' pts',True,f'vs {y-1}'),
                  f'De cada 100 piezas se vendieron {k["rotation"]:.0f}',
                  'Unidades vendidas ÷ stock del periodo. Más alto = el inventario se mueve más rápido.'),
-        kpi_card('Inventario sin vender','$ precio de lista',compact(k['unsold'],True),
+        kpi_card('Valor del inventario disponible','$ precio de lista',compact(k['unsold'],True),
                  delta_html(k['unsold_change'],'%',False,f'vs {mlast} {y-1}'),
                  f'Foto de {mlast} {y}',
-                 'Foto del último mes elegido: (stock − vendidas) × precio de lista. No es costo. Más alto = peor (rojo si sube).'),
+                 'Lo que queda disponible al cierre del último mes elegido: (stock − vendidas) × precio de lista. No es costo. Más alto = más dinero parado (rojo si sube).'),
     ]
     st.markdown('<div class="kpi-row">'+''.join(cards)+'</div>',unsafe_allow_html=True)
 
