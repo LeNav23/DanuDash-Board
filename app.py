@@ -577,12 +577,14 @@ else:
         with download:
             st.download_button('Descargar plan CSV',data=shown[cols].to_csv(index=False).encode('utf-8-sig'),
                                file_name=f'DanuStore_plan_{int(p.year.iloc[0])}_{plan_month:02d}.csv',mime='text/csv',use_container_width=True)
-        st.dataframe(shown[cols],hide_index=True,use_container_width=True,height=520,
+        # Unidades centradas y con coma de miles fija ('localized' sale con punto en navegadores en español).
+        units=['Stock actual','Ventas esperadas','Stock recomendado']
+        plan_style=shown[cols].style.format({**{c:'{:,.0f}' for c in units},'Sobra (+) / Falta (−)':'{:+,.0f}'})
+        st.dataframe(plan_style,hide_index=True,use_container_width=True,height=520,
             column_config={'Producto':st.column_config.TextColumn('Producto',width=150),
-                           COL_REGION:st.column_config.TextColumn(COL_REGION,width=72),
-                           'Stock actual':st.column_config.NumberColumn('Stock actual',format='localized',width=90),
-                           'Ventas esperadas':st.column_config.NumberColumn('Ventas esperadas',format='localized',width=105),
-                           'Stock recomendado':st.column_config.NumberColumn('Stock recomendado',format='localized',width=115),
-                           'Sobra (+) / Falta (−)':st.column_config.NumberColumn('Sobra (+) / Falta (−)',format='%+d',width=130),
+                           COL_REGION:st.column_config.TextColumn(COL_REGION,width=72,alignment='center'),
+                           'Stock actual':st.column_config.NumberColumn('Stock actual',width=90,alignment='center'),
+                           'Ventas esperadas':st.column_config.NumberColumn('Ventas esperadas',width=105,alignment='center'),
+                           'Stock recomendado':st.column_config.NumberColumn('Stock recomendado',width=115,alignment='center'),
+                           'Sobra (+) / Falta (−)':st.column_config.NumberColumn('Sobra (+) / Falta (−)',width=130,alignment='center'),
                            COL_ACTION:st.column_config.TextColumn(COL_ACTION,width=160)})
-    st.caption('Valores a precio de lista. El pronóstico y el stock recomendado vienen del modelo Random Forest (stock recomendado = ventas esperadas + colchón de seguridad).')
