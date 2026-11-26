@@ -140,6 +140,7 @@ def low_rotation_products(d,n=10,base=None):
                Es None si el último mes es enero (no hay mes anterior en ese año).
                Usa `base` (mismos filtros pero con todos los meses) para poder ver el mes anterior.
     Regla: de los 20 productos que menos rotan, los n que menos venden.
+    Se regresan ordenados por rotación, de menor a mayor (así se muestran por default).
     """
     keys=['product_id','product_name','subcategory']
     r=d.groupby(keys,as_index=False)[['units_sold','stock']].sum()
@@ -154,7 +155,7 @@ def low_rotation_products(d,n=10,base=None):
     else:
         r['delta']=np.nan
     pool=r.sort_values('rotation').head(20)
-    return pool.sort_values(['units_sold','rotation']).head(n)
+    return pool.sort_values(['units_sold','rotation']).head(n).sort_values(['rotation','units_sold'])
 
 
 def sold_out_products(d):

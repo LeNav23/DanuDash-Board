@@ -458,15 +458,17 @@ if page==PAGE_SALES:
             low=low_rotation_products(data,n=10,base=subset(df,sel_years,regions,cats,subs))
             last_d=data.date.max()
             prev_lbl=MONTH_NAMES[last_d.month-1] if last_d.month>1 else None
-            st.caption(f'De los 20 que menos rotan, los 10 que menos venden. Cambio = {MONTH_NAMES[last_d.month]} vs {prev_lbl} {last_d.year}' if prev_lbl
-                       else 'De los 20 que menos rotan, los 10 que menos venden. Enero no tiene mes anterior en el mismo año.')
+            delta_help=(f'Puntos de rotación de {MONTH_NAMES[last_d.month]} contra {prev_lbl} {last_d.year}' if prev_lbl
+                        else 'Enero no tiene mes anterior en el mismo año')
             low=low.rename(columns={'product_name':'Producto','subcategory':COL_SUBCAT,'rotation':'% de rotación','delta':'Cambio (pts)','units_sold':COL_SOLD})
-            st.dataframe(low[['Producto',COL_SUBCAT,COL_SOLD,'% de rotación','Cambio (pts)']],hide_index=True,use_container_width=True,height=388,
-                column_config={'Producto':st.column_config.TextColumn('Producto',width=138),
-                               COL_SUBCAT:st.column_config.TextColumn('Subcat.',width=68),
-                               COL_SOLD:st.column_config.NumberColumn('Vendidas (uds)',format='localized',width=88),
-                               '% de rotación':st.column_config.ProgressColumn('Rotación',min_value=0,max_value=100,format='%.0f%%',width=76),
-                               'Cambio (pts)':st.column_config.NumberColumn('Delta mes ant.',format='%+.1f pts',width=86,help='Puntos de rotación del último mes contra el mes anterior del mismo año')})
+            # Ya viene ordenada por rotación (menor a mayor); la rotación va al final. Coma de miles fija como en la tabla de la izquierda.
+            st.dataframe(low[['Producto',COL_SUBCAT,COL_SOLD,'Cambio (pts)','% de rotación']].style.format({COL_SOLD:'{:,.0f}'}),
+                hide_index=True,use_container_width=True,height=388,
+                column_config={'Producto':st.column_config.TextColumn('Producto',width=138,help='De los 20 que menos rotan, los 10 que menos venden'),
+                               COL_SUBCAT:st.column_config.TextColumn('Subcat.',width=68,alignment='center'),
+                               COL_SOLD:st.column_config.NumberColumn('Vendidas (uds)',width=88,alignment='center'),
+                               'Cambio (pts)':st.column_config.NumberColumn('Delta mes ant.',format='%+.1f pts',width=86,alignment='center',help=delta_help),
+                               '% de rotación':st.column_config.ProgressColumn('Rotación',min_value=0,max_value=100,format='%.0f%%',width=76)})
     
 else:
     title_bar('Plan de inventario por región','Plan de inventario para cada producto en cada región, de acuerdo con el pronóstico de ventas')
