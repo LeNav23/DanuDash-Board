@@ -117,10 +117,6 @@ def kpi_cards(base, year, months=None):
         'rotation_delta':(rot-rot_ly) if rot is not None and rot_ly is not None else None,
         'unsold':unsold,'unsold_ly':unsold_ly,
         'unsold_change':_pct_change(unsold,unsold_ly) if unsold_ly else None,
-        # Inventario disponible = FOTO del stock en el mes de corte (unidades), contra el mismo mes del año anterior.
-        'stock_last':float(lm.stock.sum()),
-        'stock_last_ly':float(lm_ly.stock.sum()) if len(lm_ly) else None,
-        'stock_change':_pct_change(float(lm.stock.sum()),float(lm_ly.stock.sum())) if len(lm_ly) and lm_ly.stock.sum() else None,
     }
 
 
@@ -144,7 +140,6 @@ def low_rotation_products(d,n=10,base=None):
                Es None si el último mes es enero (no hay mes anterior en ese año).
                Usa `base` (mismos filtros pero con todos los meses) para poder ver el mes anterior.
     Regla: de los 20 productos que menos rotan, los n que menos venden.
-    Se muestran ordenados por rotación, de menor a mayor.
     """
     keys=['product_id','product_name','subcategory']
     r=d.groupby(keys,as_index=False)[['units_sold','stock']].sum()
@@ -159,7 +154,7 @@ def low_rotation_products(d,n=10,base=None):
     else:
         r['delta']=np.nan
     pool=r.sort_values('rotation').head(20)
-    return pool.sort_values(['units_sold','rotation']).head(n).sort_values(['rotation','units_sold'])
+    return pool.sort_values(['units_sold','rotation']).head(n)
 
 
 def sold_out_products(d):
@@ -276,67 +271,3 @@ def plan_kpis(p: pd.DataFrame) -> dict:
     out['reducen']={'n':out['Trasladar a otra región']['n']+out['Aplicar descuento a la prenda']['n'],
                     'valor':out['Trasladar a otra región']['valor']+out['Aplicar descuento a la prenda']['valor']}
     return out
-
-
-# ---------- Traslados entre regiones ----------
-# Supuestos (comentarios de la profesora y de Natalia, Danu): un flete de zona a zona cuesta
-# entre 15 y 20 mil pesos y en un viaje caben ~10 mil piezas (ropa ligera). Son estimados para
-# plantear la propuesta, no cotizaciones.
-FLETE_MIN, FLETE_MAX, PIEZAS_POR_VIAJE = 15_000, 20_000, 10_000
-
-
-def transfer_plan(p: pd.DataFrame) -> pd.DataFrame:
-    """Asigna a qué región se manda lo que sobra en cada producto-región marcado 'Trasladar'.
-
-    p = plan de UN mes, SIN filtrar por región (el destino puede ser cualquier región).
-    Por producto: las regiones que sobran (diferencia > 0 y acción 'Trasladar') mandan a las que
-    les falta (diferencia < 0). Se reparte de mayor sobrante a mayor faltante y solo se mueve lo
-    que la otra región necesita (mín. entre lo que sobra y lo que falta); el resto se queda.
-    """
-    cols=['product_id','product_name','origen','destino','unidades','valor']
-    out=[]
-    price=(p.valor_inmovilizado/p.diferencia.where(p.diferencia>0)).fillna(0)  # valor por pieza sobrante
-    p=p.assign(pieza_valor=price)
-    for pid,g in p.groupby('product_id'):
-        src=g[(g.accion=='Trasladar a otra región')&(g.diferencia>0)].sort_values('diferencia',ascending=False)
-        dst=g[g.diferencia<0].sort_values('diferencia')
-        if src.empty or dst.empty: continue
-        need={r.region:-int(r.diferencia) for r in dst.itertuples()}
-        for s in src.itertuples():
-            left=int(s.diferencia)
-            for reg in list(need):
-                if left<=0: break
-                q=min(left,need[reg])
-                if q<=0: continue
-                out.append((pid,s.product_name,s.region,reg,q,q*s.pieza_valor))
-                left-=q; need[reg]-=q
-    return pd.DataFrame(out,columns=cols)
-
-
-def transfer_routes(t: pd.DataFrame) -> pd.DataFrame:
-    """Resumen región → región con viajes y costo estimado del flete."""
-    if t.empty:
-        return pd.DataFrame(columns=['origen','destino','productos','unidades','valor','viajes','flete_min','flete_max'])
-    r=t.groupby(['origen','destino'],as_index=False).agg(productos=('product_id','nunique'),
-        unidades=('unidades','sum'),valor=('valor','sum'))
-    r['viajes']=np.ceil(r.unidades/PIEZAS_POR_VIAJE).astype(int)
-    r['flete_min']=r.viajes*FLETE_MIN
-    r['flete_max']=r.viajes*FLETE_MAX
-    return r.sort_values('unidades',ascending=False)
-
-
-def forecast_vs_real(p: pd.DataFrame, hist: pd.DataFrame, year: int, month: int) -> dict:
-    """Forecast del mes del plan contra ventas REALES (unidades) del mes anterior y del mismo mes del año pasado.
-
-    p    = plan del mes ya filtrado (región/categoría/subcategoría).
-    hist = base_final con los mismos filtros y todos los meses.
-    Los cambios son en % y valen None si no hay ventas reales con qué comparar.
-    """
-    def real(y,m):
-        x=hist[(hist.year==y)&(hist.mes_num==m)]
-        return float(x.units_sold.sum()) if len(x) else None
-    fc=float(p.ventas_esperadas.sum())
-    prev_y,prev_m=(year,month-1) if month>1 else (year-1,12)
-    prev,ly=real(prev_y,prev_m),real(year-1,month)
-    return {'forecast':fc,'prev_y':prev_y,'prev_m':prev_m,'real_prev':prev,'real_ly':ly,
-            'vs_prev':_pct_change(fc,prev) if prev else None,'vs_ly':_pct_change(fc,ly) if ly else None}
