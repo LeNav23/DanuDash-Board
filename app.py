@@ -442,18 +442,16 @@ if page==PAGE_SALES:
     with a:
         with st.container(border=True):
             st.subheader('Top 10 que vendieron todo su stock')
-            sold=sold_out_products(data)
-            n_months=int(data.groupby(['year','mes_num']).ngroups)
-            n_all=int((sold.months_sold_out==n_months).sum())
-            st.caption(f'{n_all:,} producto-región vendieron todo su stock en los {n_months} meses elegidos' if n_months>1
-                       else f'{len(sold):,} producto-región vendieron todo su stock en el mes elegido')
-            sold=sold.head(10)  # top 10; el total va en la nota de arriba
+            # Se eligen los 10 con más meses vendiendo todo y se muestran de más a menos unidades vendidas.
+            sold=sold_out_products(data).head(10).sort_values('units_sold',ascending=False)
             sold=sold.assign(Región=sold.region.map(lambda r:REGION_SHORT.get(r,r)))
             sold=sold.rename(columns={'product_name':'Producto','months_sold_out':'Meses con todo vendido','units_sold':COL_SOLD})
-            st.dataframe(sold[['Producto',COL_REGION,COL_SOLD]],hide_index=True,use_container_width=True,height=388,
+            # Coma de miles fija: 'localized' depende del idioma del navegador y en español sale con punto.
+            st.dataframe(sold[['Producto',COL_REGION,COL_SOLD]].style.format({COL_SOLD:'{:,.0f}'}),
+                hide_index=True,use_container_width=True,height=388,
                 column_config={'Producto':st.column_config.TextColumn('Producto',width=150),
-                               COL_REGION:st.column_config.TextColumn(COL_REGION,width=72),
-                               COL_SOLD:st.column_config.NumberColumn('Vendidas (uds)',format='localized',width=95)})
+                               COL_REGION:st.column_config.TextColumn(COL_REGION,width=72,alignment='center'),
+                               COL_SOLD:st.column_config.NumberColumn('Vendidas (uds)',width=95,alignment='center')})
     with b:
         with st.container(border=True):
             st.subheader('Top 10 menor rotación y bajas ventas')
