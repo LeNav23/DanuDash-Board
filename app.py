@@ -462,12 +462,19 @@ if page==PAGE_SALES:
                         else 'Enero no tiene mes anterior en el mismo año')
             low=low.rename(columns={'product_name':'Producto','subcategory':COL_SUBCAT,'rotation':'% de rotación','delta':'Cambio (pts)','units_sold':COL_SOLD})
             # Ya viene ordenada por rotación (menor a mayor); la rotación va al final. Coma de miles fija como en la tabla de la izquierda.
-            st.dataframe(low[['Producto',COL_SUBCAT,COL_SOLD,'Cambio (pts)','% de rotación']].style.format({COL_SOLD:'{:,.0f}'}),
-                hide_index=True,use_container_width=True,height=388,
-                column_config={'Producto':st.column_config.TextColumn('Producto',width=138,help='De los 20 que menos rotan, los 10 que menos venden'),
+            # Delta en color: verde = la rotación subió (bueno), terracota = bajó (malo), gris = sin cambio.
+            # Tonos intermedios entre el tema claro y el oscuro: la tabla no lee las variables CSS del tema.
+            def delta_color(v):
+                if pd.isna(v) or abs(v)<0.05: return 'color:#8A94A6'
+                return f'color:{"#4F9A60" if v>0 else "#D0634A"};font-weight:700'
+            low_style=(low[['Producto',COL_SUBCAT,COL_SOLD,'Cambio (pts)','% de rotación']].style
+                       .format({COL_SOLD:'{:,.0f}','Cambio (pts)':lambda v:'—' if pd.isna(v) else f'{v:+.1f} pts'})
+                       .map(delta_color,subset=['Cambio (pts)']))
+            st.dataframe(low_style,hide_index=True,use_container_width=True,height=388,
+                column_config={'Producto':st.column_config.TextColumn('Producto',width=140,help='De los 20 que menos rotan, los 10 que menos venden'),
                                COL_SUBCAT:st.column_config.TextColumn('Subcat.',width=68,alignment='center'),
-                               COL_SOLD:st.column_config.NumberColumn('Vendidas (uds)',width=88,alignment='center'),
-                               'Cambio (pts)':st.column_config.NumberColumn('Delta mes ant.',format='%+.1f pts',width=86,alignment='center',help=delta_help),
+                               COL_SOLD:st.column_config.NumberColumn('Vendidas (uds)',width=100,alignment='center'),
+                               'Cambio (pts)':st.column_config.NumberColumn('Δ mes ant.',width=76,alignment='center',help=delta_help),
                                '% de rotación':st.column_config.ProgressColumn('Rotación',min_value=0,max_value=100,format='%.0f%%',width=76)})
     
 else:
