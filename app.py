@@ -20,7 +20,7 @@ import streamlit.components.v1 as components
 from data_utils import (prepare_data,subset,region_rotation,sold_out_products,
                         low_rotation_products,build_purchase_plan,
                         action_for_product,MONTH_NAMES,next_month,cut_history,REGION_SHORT,REGION_ORDER,
-                        kpi_cards,rotation_status,STATUS_LABELS,prepare_plan,plan_kpis,ACTION_ORDER)
+                        kpi_cards,rotation_status,STATUS_LABELS,prepare_plan,plan_kpis,forecast_vs_last_year,ACTION_ORDER)
 
 st.set_page_config(page_title='DanuStore · Inventario y compras',page_icon='📦',layout='wide',initial_sidebar_state='expanded')
 BASE=Path(__file__).resolve().parent
@@ -287,10 +287,10 @@ def render_kpi_cards(k):
                  delta_html(k['rotation_delta'],' pts',True,f'vs {y-1}'),
                  f'De cada 100 piezas se vendieron {k["rotation"]:.0f}',
                  'Unidades vendidas ÷ stock del periodo. Más alto = el inventario se mueve más rápido.'),
-        kpi_card('Inventario sin vender','$ precio de lista',compact(k['unsold'],True),
+        kpi_card('Valor del inventario disponible','$ precio de lista',compact(k['unsold'],True),
                  delta_html(k['unsold_change'],'%',False,f'vs {mlast} {y-1}'),
                  f'Foto de {mlast} {y}',
-                 'Foto del último mes elegido: (stock − vendidas) × precio de lista. No es costo. Más alto = peor (rojo si sube).'),
+                 'Lo que queda disponible al cierre del último mes elegido: (stock − vendidas) × precio de lista. No es costo. Más alto = más dinero parado (rojo si sube).'),
     ]
     st.markdown('<div class="kpi-row">'+''.join(cards)+'</div>',unsafe_allow_html=True)
 
@@ -400,9 +400,14 @@ with st.sidebar:
         plan_months=sorted(plan_df.mes_num.unique().astype(int).tolist()) if plan_df is not None else [10,11,12]
         plan_month=single_filter('Mes del plan',plan_months,'plan_month',plan_months[0],fmt=lambda m:MONTH_NAMES[m])
         sel_actions=multi_filter(COL_ACTION,ACTION_ORDER,'act',todos='Todas')
+        # Años anteriores para la gráfica de forecast. El año del plan siempre se ve; por default no se compara con ninguno.
+        plan_year=int(plan_df.year.max()) if plan_df is not None else all_years[-1]
+        past_years=[y for y in reversed(all_years) if y<plan_year]
+        st.session_state.setdefault('fc_years',[])
+        comp_years=multi_filter('Comparar con',past_years,'fc_years',todos='Ninguno')
     def reset_filters():
         # Se asignan valores vacíos (no se borran) para que los chips también se vean sin seleccionar.
-        for k in ('region','cat','subcat','month_des','act'):
+        for k in ('region','cat','subcat','month_des','act','fc_years'):
             st.session_state[k]=[]
         st.session_state['year']=year_options[-2]
         for k in ('plan_month',):
@@ -442,33 +447,40 @@ if page==PAGE_SALES:
     with a:
         with st.container(border=True):
             st.subheader('Top 10 que vendieron todo su stock')
-            sold=sold_out_products(data)
-            n_months=int(data.groupby(['year','mes_num']).ngroups)
-            n_all=int((sold.months_sold_out==n_months).sum())
-            st.caption(f'{n_all:,} producto-región vendieron todo su stock en los {n_months} meses elegidos' if n_months>1
-                       else f'{len(sold):,} producto-región vendieron todo su stock en el mes elegido')
-            sold=sold.head(10)  # top 10; el total va en la nota de arriba
+            # Se eligen los 10 con más meses vendiendo todo y se muestran de más a menos unidades vendidas.
+            sold=sold_out_products(data).head(10).sort_values('units_sold',ascending=False)
             sold=sold.assign(Región=sold.region.map(lambda r:REGION_SHORT.get(r,r)))
             sold=sold.rename(columns={'product_name':'Producto','months_sold_out':'Meses con todo vendido','units_sold':COL_SOLD})
-            st.dataframe(sold[['Producto',COL_REGION,COL_SOLD]],hide_index=True,use_container_width=True,height=388,
+            # Coma de miles fija: 'localized' depende del idioma del navegador y en español sale con punto.
+            st.dataframe(sold[['Producto',COL_REGION,COL_SOLD]].style.format({COL_SOLD:'{:,.0f}'}),
+                hide_index=True,use_container_width=True,height=388,
                 column_config={'Producto':st.column_config.TextColumn('Producto',width=150),
-                               COL_REGION:st.column_config.TextColumn(COL_REGION,width=72),
-                               COL_SOLD:st.column_config.NumberColumn('Vendidas (uds)',format='localized',width=95)})
+                               COL_REGION:st.column_config.TextColumn(COL_REGION,width=72,alignment='center'),
+                               COL_SOLD:st.column_config.NumberColumn('Vendidas (uds)',width=95,alignment='center')})
     with b:
         with st.container(border=True):
             st.subheader('Top 10 menor rotación y bajas ventas')
             low=low_rotation_products(data,n=10,base=subset(df,sel_years,regions,cats,subs))
             last_d=data.date.max()
             prev_lbl=MONTH_NAMES[last_d.month-1] if last_d.month>1 else None
-            st.caption(f'De los 20 que menos rotan, los 10 que menos venden. Cambio = {MONTH_NAMES[last_d.month]} vs {prev_lbl} {last_d.year}' if prev_lbl
-                       else 'De los 20 que menos rotan, los 10 que menos venden. Enero no tiene mes anterior en el mismo año.')
+            delta_help=(f'Puntos de rotación de {MONTH_NAMES[last_d.month]} contra {prev_lbl} {last_d.year}' if prev_lbl
+                        else 'Enero no tiene mes anterior en el mismo año')
             low=low.rename(columns={'product_name':'Producto','subcategory':COL_SUBCAT,'rotation':'% de rotación','delta':'Cambio (pts)','units_sold':COL_SOLD})
-            st.dataframe(low[['Producto',COL_SUBCAT,COL_SOLD,'% de rotación','Cambio (pts)']],hide_index=True,use_container_width=True,height=388,
-                column_config={'Producto':st.column_config.TextColumn('Producto',width=138),
-                               COL_SUBCAT:st.column_config.TextColumn('Subcat.',width=68),
-                               COL_SOLD:st.column_config.NumberColumn('Vendidas (uds)',format='localized',width=88),
-                               '% de rotación':st.column_config.ProgressColumn('Rotación',min_value=0,max_value=100,format='%.0f%%',width=76),
-                               'Cambio (pts)':st.column_config.NumberColumn('Delta mes ant.',format='%+.1f pts',width=86,help='Puntos de rotación del último mes contra el mes anterior del mismo año')})
+            # Ya viene ordenada por rotación (menor a mayor); la rotación va al final. Coma de miles fija como en la tabla de la izquierda.
+            # Delta en color: verde = la rotación subió (bueno), terracota = bajó (malo), gris = sin cambio.
+            # Tonos intermedios entre el tema claro y el oscuro: la tabla no lee las variables CSS del tema.
+            def delta_color(v):
+                if pd.isna(v) or abs(v)<0.05: return 'color:#8A94A6'
+                return f'color:{"#4F9A60" if v>0 else "#D0634A"};font-weight:700'
+            low_style=(low[['Producto',COL_SUBCAT,COL_SOLD,'Cambio (pts)','% de rotación']].style
+                       .format({COL_SOLD:'{:,.0f}','Cambio (pts)':lambda v:'—' if pd.isna(v) else f'{v:+.1f} pts'})
+                       .map(delta_color,subset=['Cambio (pts)']))
+            st.dataframe(low_style,hide_index=True,use_container_width=True,height=388,
+                column_config={'Producto':st.column_config.TextColumn('Producto',width=140,help='De los 20 que menos rotan, los 10 que menos venden'),
+                               COL_SUBCAT:st.column_config.TextColumn('Subcat.',width=68,alignment='center'),
+                               COL_SOLD:st.column_config.NumberColumn('Vendidas (uds)',width=100,alignment='center'),
+                               'Cambio (pts)':st.column_config.NumberColumn('Δ mes ant.',width=76,alignment='center',help=delta_help),
+                               '% de rotación':st.column_config.ProgressColumn('Rotación',min_value=0,max_value=100,format='%.0f%%',width=76)})
     
 else:
     title_bar('Plan de inventario por región','Plan de inventario para cada producto en cada región, de acuerdo con el pronóstico de ventas')
@@ -486,11 +498,13 @@ else:
     if p.empty:
         st.warning('No hay registros para los filtros seleccionados.');st.stop()
     k=plan_kpis(p)
+    fy=forecast_vs_last_year(p,subset(df,None,regions,cats,subs))
     mname=f'{MONTH_NAMES[plan_month]} {int(p.year.iloc[0])}'
     cards=[
-        kpi_card('Acciones para reducir sobrestock','producto-región',f'{k["reducen"]["n"]:,}',
-                 f'{k["Trasladar a otra región"]["n"]:,} trasladar · {k["Aplicar descuento a la prenda"]["n"]:,} descuento',
-                 '','Producto-región con sobrestock en '+mname+' que se pueden resolver trasladando o con descuento.'),
+        kpi_card('Forecast vs año anterior',UNIT_PCT_UNITS,big_delta(fy['change']),
+                 f'{fy["forecast"]:,.0f} vs {fy["last_year"]:,.0f} uds ({MONTH_NAMES[fy["month"]]} {fy["year"]-1})' if fy['last_year']
+                 else f'{fy["forecast"]:,.0f} uds',
+                 '','Forecast del modelo para '+mname+' contra las ventas reales del mismo mes del año anterior. Verde = se espera vender más.'),
         kpi_card('Trasladar a otra región','producto-región',f'{k["Trasladar a otra región"]["n"]:,}',
                  f'{compact(k["Trasladar a otra región"]["valor"],True)} inmovilizados',
                  '','Sobra stock aquí y el mismo producto está en riesgo de agotado en otra región. Valor a precio de lista.'),
@@ -505,26 +519,51 @@ else:
 
     with st.container(border=True):
         st.subheader('Comparación ventas contra forecast por mes')
-        # Ventas reales de toda la historia (base final) contra el pronóstico del modelo (oct–dic 2025), con los mismos filtros.
+        # Un eje de Ene a Dic: el año actual siempre (real hasta antes del pronóstico + forecast del modelo)
+        # y, si se eligen, los años anteriores en gris para comparar la misma temporada.
         hist=subset(df,None,regions,cats,subs).groupby('date',as_index=False)['units_sold'].sum().sort_values('date')
+        hist=hist.assign(year=hist.date.dt.year,mes_num=hist.date.dt.month)
         pf=plan_df
         if regions: pf=pf[pf.region.isin(regions)]
         if cats: pf=pf[pf.category_es.isin(cats)]
         if subs: pf=pf[pf.subcategory.isin(subs)]
-        fc=pf.groupby(['year','mes_num'],as_index=False)['ventas_esperadas'].sum()
-        fc['date']=pd.to_datetime(dict(year=fc.year.astype(int),month=fc.mes_num.astype(int),day=1))
-        fc=fc.sort_values('date')
+        fc=pf.groupby(['year','mes_num'],as_index=False)['ventas_esperadas'].sum().sort_values(['year','mes_num'])
+        cur_year=int(fc.year.max()) if len(fc) else int(hist.year.max())
+        fc=fc[fc.year==cur_year]
+        fc_start=int(fc.mes_num.min()) if len(fc) else 13
         fig=go.Figure()
-        fig.add_trace(go.Scatter(x=hist.date,y=hist.units_sold,mode='lines+markers',name='Unidades vendidas',line=dict(color=BLUE,width=3)))
-        fig.add_trace(go.Scatter(x=fc.date,y=fc.ventas_esperadas,mode='lines+markers+text',name='Forecast del modelo',
-            line=dict(color=PURPLE,width=3,dash='dot'),marker=dict(color=PURPLE,size=11,symbol='diamond'),
-            text=[compact(v) for v in fc.ventas_esperadas],textposition='top center'))
+        shown_y=[]
+        for i,y in enumerate(sorted(comp_years or [],reverse=True)):  # años elegidos en "Comparar con" (barra lateral)  # el más reciente más marcado
+            h=hist[hist.year==y]; shown_y+=h.units_sold.tolist()
+            fig.add_trace(go.Scatter(x=h.mes_num,y=h.units_sold,mode='lines+markers',name=f'Ventas reales {y}',customdata=h.mes_num.map(MONTH_NAMES),
+                line=dict(color=MUTED,width=2),marker=dict(size=5),opacity=max(0.85-0.25*i,0.35),
+                hovertemplate=f'%{{customdata}} {y}: %{{y:,.0f}} uds<extra></extra>'))
+        # En los meses pronosticados solo se muestra el forecast (no la venta real de ese mes).
+        cur=hist[(hist.year==cur_year)&(hist.mes_num<fc_start)]; shown_y+=cur.units_sold.tolist()
+        fig.add_trace(go.Scatter(x=cur.mes_num,y=cur.units_sold,mode='lines+markers',name=f'Ventas reales {cur_year}',customdata=cur.mes_num.map(MONTH_NAMES),
+            line=dict(color=BLUE,width=3),hovertemplate=f'%{{customdata}} {cur_year}: %{{y:,.0f}} uds<extra></extra>'))
         if len(fc):
+            shown_y+=fc.ventas_esperadas.tolist()
+            if len(cur):  # une el último mes real con el primer mes pronosticado
+                fig.add_trace(go.Scatter(x=[cur.mes_num.iloc[-1],fc.mes_num.iloc[0]],y=[cur.units_sold.iloc[-1],fc.ventas_esperadas.iloc[0]],
+                    mode='lines',line=dict(color=PURPLE,width=3,dash='dot'),showlegend=False,hoverinfo='skip'))
+            fig.add_trace(go.Scatter(x=fc.mes_num,y=fc.ventas_esperadas,mode='lines+markers+text',name=f'Forecast del modelo {cur_year}',customdata=fc.mes_num.map(MONTH_NAMES),
+                line=dict(color=PURPLE,width=3,dash='dot'),marker=dict(color=PURPLE,size=11,symbol='diamond'),
+                text=[compact(v) for v in fc.ventas_esperadas],textfont=dict(size=14),textposition='top center',
+                hovertemplate=f'%{{customdata}} {cur_year}: %{{y:,.0f}} uds (forecast)<extra></extra>'))
             # La línea roja marca dónde termina el entrenamiento: desde ahí es pronóstico.
-            fig.add_vline(x=(fc.date.min()-pd.DateOffset(days=15)).timestamp()*1000,line_color='#F16363',line_dash='dash',line_width=1.6)
-        top=max(hist.units_sold.max(),fc.ventas_esperadas.max() if len(fc) else 0)
-        fig.update_yaxes(title='Unidades',tickformat='~s',range=[hist.units_sold.min()*0.93,top*1.07])  # espacio para las etiquetas
-        st.plotly_chart(style_fig(fig,height=280),use_container_width=True,config={'displayModeBar':False})
+            fig.add_vline(x=fc_start-0.5,line_color='#F16363',line_dash='dash',line_width=1.6)
+        fig=style_fig(fig,height=300)
+        # Ejes más grandes y en negritas (comentario de la maestra); va después de style_fig para no perderse.
+        fig.update_xaxes(title=dict(text='<b>Mes</b>',font=dict(size=18)),tickfont=dict(size=16),
+                         tickmode='array',tickvals=list(range(1,13)),ticktext=[MONTH_NAMES[m] for m in range(1,13)],
+                         range=[0.6,12.6])
+        # Eje Y en miles con "k" (800k, 900k, 1000k): Plotly escribiría "1M" y Leo prefiere 1000k.
+        y_lo,y_hi=min(shown_y)*0.93,max(shown_y)*1.07  # aire arriba para las etiquetas del forecast
+        y_ticks=list(range(-(-int(y_lo)//100_000)*100_000,int(y_hi)+1,100_000))  # múltiplos de 100k dentro del rango
+        fig.update_yaxes(title=dict(text='<b>Unidades</b>',font=dict(size=18)),tickfont=dict(size=16),range=[y_lo,y_hi],
+                         tickmode='array',tickvals=y_ticks,ticktext=[f'{v//1000}k' for v in y_ticks])
+        st.plotly_chart(fig,use_container_width=True,config={'displayModeBar':False})
 
     shown=p if not sel_actions else p[p.accion.isin(sel_actions)]
     shown=shown.sort_values(['accion','valor_inmovilizado'],ascending=[True,False])
@@ -538,12 +577,14 @@ else:
         with download:
             st.download_button('Descargar plan CSV',data=shown[cols].to_csv(index=False).encode('utf-8-sig'),
                                file_name=f'DanuStore_plan_{int(p.year.iloc[0])}_{plan_month:02d}.csv',mime='text/csv',use_container_width=True)
-        st.dataframe(shown[cols],hide_index=True,use_container_width=True,height=520,
+        # Unidades centradas y con coma de miles fija ('localized' sale con punto en navegadores en español).
+        units=['Stock actual','Ventas esperadas','Stock recomendado']
+        plan_style=shown[cols].style.format({**{c:'{:,.0f}' for c in units},'Sobra (+) / Falta (−)':'{:+,.0f}'})
+        st.dataframe(plan_style,hide_index=True,use_container_width=True,height=520,
             column_config={'Producto':st.column_config.TextColumn('Producto',width=150),
-                           COL_REGION:st.column_config.TextColumn(COL_REGION,width=72),
-                           'Stock actual':st.column_config.NumberColumn('Stock actual',format='localized',width=90),
-                           'Ventas esperadas':st.column_config.NumberColumn('Ventas esperadas',format='localized',width=105),
-                           'Stock recomendado':st.column_config.NumberColumn('Stock recomendado',format='localized',width=115),
-                           'Sobra (+) / Falta (−)':st.column_config.NumberColumn('Sobra (+) / Falta (−)',format='%+d',width=130),
+                           COL_REGION:st.column_config.TextColumn(COL_REGION,width=72,alignment='center'),
+                           'Stock actual':st.column_config.NumberColumn('Stock actual',width=90,alignment='center'),
+                           'Ventas esperadas':st.column_config.NumberColumn('Ventas esperadas',width=105,alignment='center'),
+                           'Stock recomendado':st.column_config.NumberColumn('Stock recomendado',width=115,alignment='center'),
+                           'Sobra (+) / Falta (−)':st.column_config.NumberColumn('Sobra (+) / Falta (−)',width=130,alignment='center'),
                            COL_ACTION:st.column_config.TextColumn(COL_ACTION,width=160)})
-    st.caption('Valores a precio de lista. El pronóstico y el stock recomendado vienen del modelo Random Forest (stock recomendado = ventas esperadas + colchón de seguridad).')

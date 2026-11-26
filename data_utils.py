@@ -140,6 +140,7 @@ def low_rotation_products(d,n=10,base=None):
                Es None si el último mes es enero (no hay mes anterior en ese año).
                Usa `base` (mismos filtros pero con todos los meses) para poder ver el mes anterior.
     Regla: de los 20 productos que menos rotan, los n que menos venden.
+    Se regresan ordenados por rotación, de menor a mayor (así se muestran por default).
     """
     keys=['product_id','product_name','subcategory']
     r=d.groupby(keys,as_index=False)[['units_sold','stock']].sum()
@@ -154,7 +155,7 @@ def low_rotation_products(d,n=10,base=None):
     else:
         r['delta']=np.nan
     pool=r.sort_values('rotation').head(20)
-    return pool.sort_values(['units_sold','rotation']).head(n)
+    return pool.sort_values(['units_sold','rotation']).head(n).sort_values(['rotation','units_sold'])
 
 
 def sold_out_products(d):
@@ -260,6 +261,21 @@ def prepare_plan(df: pd.DataFrame) -> pd.DataFrame:
     d['diferencia']=(d.stock-d.stock_recomendado).round().astype(int)
     d['accion']=pd.Categorical(d.accion,categories=ACTION_ORDER,ordered=True)
     return d
+
+
+def forecast_vs_last_year(p: pd.DataFrame, base: pd.DataFrame) -> dict:
+    """Ventas pronosticadas del mes del plan contra las ventas reales del mismo mes del año anterior.
+
+    p    = plan de UN mes, ya filtrado por región/categoría/subcategoría.
+    base = base histórica con los mismos filtros (todos los años y meses).
+    Se compara contra el año anterior (no contra el mes anterior) para quitar la temporada
+    y para no comparar contra un mes que también es pronóstico.
+    """
+    y,m=int(p.year.iloc[0]),int(p.mes_num.iloc[0])
+    fc=float(p.ventas_esperadas.sum())
+    ly_rows=base[(base.year==y-1)&(base.mes_num==m)]
+    ly=float(ly_rows.units_sold.sum()) if len(ly_rows) else None
+    return {'year':y,'month':m,'forecast':fc,'last_year':ly,'change':_pct_change(fc,ly) if ly else None}
 
 
 def plan_kpis(p: pd.DataFrame) -> dict:
