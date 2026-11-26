@@ -20,7 +20,7 @@ import streamlit.components.v1 as components
 from data_utils import (prepare_data,subset,region_rotation,sold_out_products,
                         low_rotation_products,build_purchase_plan,
                         action_for_product,MONTH_NAMES,next_month,cut_history,REGION_SHORT,REGION_ORDER,
-                        kpi_cards,rotation_status,STATUS_LABELS,prepare_plan,plan_kpis,ACTION_ORDER)
+                        kpi_cards,rotation_status,STATUS_LABELS,prepare_plan,plan_kpis,forecast_vs_last_year,ACTION_ORDER)
 
 st.set_page_config(page_title='DanuStore · Inventario y compras',page_icon='📦',layout='wide',initial_sidebar_state='expanded')
 BASE=Path(__file__).resolve().parent
@@ -493,11 +493,13 @@ else:
     if p.empty:
         st.warning('No hay registros para los filtros seleccionados.');st.stop()
     k=plan_kpis(p)
+    fy=forecast_vs_last_year(p,subset(df,None,regions,cats,subs))
     mname=f'{MONTH_NAMES[plan_month]} {int(p.year.iloc[0])}'
     cards=[
-        kpi_card('Acciones para reducir sobrestock','producto-región',f'{k["reducen"]["n"]:,}',
-                 f'{k["Trasladar a otra región"]["n"]:,} trasladar · {k["Aplicar descuento a la prenda"]["n"]:,} descuento',
-                 '','Producto-región con sobrestock en '+mname+' que se pueden resolver trasladando o con descuento.'),
+        kpi_card('Forecast vs año anterior',UNIT_PCT_UNITS,big_delta(fy['change']),
+                 f'{fy["forecast"]:,.0f} vs {fy["last_year"]:,.0f} uds ({MONTH_NAMES[fy["month"]]} {fy["year"]-1})' if fy['last_year']
+                 else f'{fy["forecast"]:,.0f} uds',
+                 '','Forecast del modelo para '+mname+' contra las ventas reales del mismo mes del año anterior. Verde = se espera vender más.'),
         kpi_card('Trasladar a otra región','producto-región',f'{k["Trasladar a otra región"]["n"]:,}',
                  f'{compact(k["Trasladar a otra región"]["valor"],True)} inmovilizados',
                  '','Sobra stock aquí y el mismo producto está en riesgo de agotado en otra región. Valor a precio de lista.'),

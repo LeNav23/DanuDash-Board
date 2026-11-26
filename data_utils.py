@@ -263,6 +263,21 @@ def prepare_plan(df: pd.DataFrame) -> pd.DataFrame:
     return d
 
 
+def forecast_vs_last_year(p: pd.DataFrame, base: pd.DataFrame) -> dict:
+    """Ventas pronosticadas del mes del plan contra las ventas reales del mismo mes del año anterior.
+
+    p    = plan de UN mes, ya filtrado por región/categoría/subcategoría.
+    base = base histórica con los mismos filtros (todos los años y meses).
+    Se compara contra el año anterior (no contra el mes anterior) para quitar la temporada
+    y para no comparar contra un mes que también es pronóstico.
+    """
+    y,m=int(p.year.iloc[0]),int(p.mes_num.iloc[0])
+    fc=float(p.ventas_esperadas.sum())
+    ly_rows=base[(base.year==y-1)&(base.mes_num==m)]
+    ly=float(ly_rows.units_sold.sum()) if len(ly_rows) else None
+    return {'year':y,'month':m,'forecast':fc,'last_year':ly,'change':_pct_change(fc,ly) if ly else None}
+
+
 def plan_kpis(p: pd.DataFrame) -> dict:
     """Conteos y valor inmovilizado por acción. Las acciones que reducen sobrestock son trasladar y descuento."""
     out={}
