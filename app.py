@@ -20,12 +20,13 @@ import streamlit.components.v1 as components
 from data_utils import (prepare_data,subset,region_rotation,sold_out_products,
                         low_rotation_products,build_purchase_plan,
                         action_for_product,MONTH_NAMES,next_month,cut_history,REGION_SHORT,REGION_ORDER,
-                        kpi_cards,rotation_status,STATUS_LABELS,prepare_plan,plan_kpis,forecast_vs_last_year,ACTION_ORDER)
+                        kpi_cards,rotation_status,STATUS_LABELS,prepare_plan,prepare_forecast,plan_kpis,forecast_vs_last_year,ACTION_ORDER)
 
 st.set_page_config(page_title='DanuStore · Inventario y compras',page_icon='📦',layout='wide',initial_sidebar_state='expanded')
 BASE=Path(__file__).resolve().parent
 DEFAULT_BOOKS=('Base_final_v2.xlsx', 'Base_final.xlsx')
 PLAN_BOOK='Plan_RF_oct_dic_2025.xlsx'
+FORECAST_BOOK='Pronostico_ene_mar_2026.xlsx'
 BOOK_SNAPSHOT_HASHES={
     'Base_final_v2.xlsx': '75860ab833a29cccc68cf9ed8dc50c4f4f67f6e2ea0d415ef3eb3f5762013853',
     'Base_final.xlsx': '0825dd11fb572fb36a566f2a16343c3d2761017861b44e66260a5fb7751a687a',
@@ -190,6 +191,20 @@ def load_plan():
     return (path.name,read_plan(path.read_bytes())) if path.is_file() else (None,None)
 
 
+@st.cache_data(show_spinner=False)
+def read_forecast(buf:bytes):
+    return prepare_forecast(pd.read_excel(BytesIO(buf)))
+
+
+def load_forecast():
+    """Pronóstico de los meses futuros (ene–mar 2026). Opcional: sin él la gráfica solo llega a diciembre 2025."""
+    if 'fc_upload' in st.session_state:
+        name,buf=st.session_state['fc_upload']
+        return name,read_forecast(buf)
+    path=BASE/'data'/FORECAST_BOOK
+    return (path.name,read_forecast(path.read_bytes())) if path.is_file() else (None,None)
+
+
 def empty_fig(title=None):
     fig=go.Figure()
     fig.add_annotation(text='Sin información para los filtros seleccionados',xref='paper',yref='paper',x=.5,y=.5,showarrow=False,font_color=MUTED)
@@ -335,6 +350,13 @@ except Exception as exc:
     st.session_state.pop('plan_upload',None)
     plan_name,plan_df=None,None
 
+try:
+    fc_name,fc_df=load_forecast()
+except Exception as exc:
+    st.error(f'No se pudo cargar el pronóstico: {exc}')
+    st.session_state.pop('fc_upload',None)
+    fc_name,fc_df=None,None
+
 if df is None:
     # Primera vez sin base local: se pide el archivo una sola vez en la pantalla principal.
     _,mid,_=st.columns([1,1.4,1])
@@ -400,14 +422,9 @@ with st.sidebar:
         plan_months=sorted(plan_df.mes_num.unique().astype(int).tolist()) if plan_df is not None else [10,11,12]
         plan_month=single_filter('Mes del plan',plan_months,'plan_month',plan_months[0],fmt=lambda m:MONTH_NAMES[m])
         sel_actions=multi_filter(COL_ACTION,ACTION_ORDER,'act',todos='Todas')
-        # Años anteriores para la gráfica de forecast. El año del plan siempre se ve; por default no se compara con ninguno.
-        plan_year=int(plan_df.year.max()) if plan_df is not None else all_years[-1]
-        past_years=[y for y in reversed(all_years) if y<plan_year]
-        st.session_state.setdefault('fc_years',[])
-        comp_years=multi_filter('Comparar con',past_years,'fc_years',todos='Ninguno')
     def reset_filters():
         # Se asignan valores vacíos (no se borran) para que los chips también se vean sin seleccionar.
-        for k in ('region','cat','subcat','month_des','act','fc_years'):
+        for k in ('region','cat','subcat','month_des','act'):
             st.session_state[k]=[]
         st.session_state['year']=year_options[-2]
         for k in ('plan_month',):
@@ -420,7 +437,10 @@ with st.sidebar:
                          on_change=remember_upload,args=('base_new','base_upload'))
         st.file_uploader('Plan del modelo (.xlsx)',type=['xlsx'],key='plan_new',
                          on_change=remember_upload,args=('plan_new','plan_upload'))
-    st.caption(f'Fuente: {source_name}'+(f' · {plan_name}' if page!=PAGE_SALES and plan_name else ''))
+        st.file_uploader('Pronóstico ene–mar 2026 (.xlsx)',type=['xlsx'],key='fc_new',
+                         on_change=remember_upload,args=('fc_new','fc_upload'))
+    st.caption(f'Fuente: {source_name}'+(f' · {plan_name}' if page!=PAGE_SALES and plan_name else '')
+               +(f' · {fc_name}' if page!=PAGE_SALES and fc_name else ''))
     components.html(SIDE_POPOVER_JS,height=0)
 
 regions=sel_regions or None
@@ -519,51 +539,69 @@ else:
 
     with st.container(border=True):
         st.subheader('Comparación ventas contra forecast por mes')
-        # Un eje de Ene a Dic: el año actual siempre (real hasta antes del pronóstico + forecast del modelo)
-        # y, si se eligen, los años anteriores en gris para comparar la misma temporada.
+        # Una sola línea de tiempo: 2025 completo y, al final, los meses pronosticados de 2026.
+        # La línea gris es el mismo mes del año anterior (2024 para los meses de 2025 y 2025 para los de 2026).
         hist=subset(df,None,regions,cats,subs).groupby('date',as_index=False)['units_sold'].sum().sort_values('date')
         hist=hist.assign(year=hist.date.dt.year,mes_num=hist.date.dt.month)
-        pf=plan_df
-        if regions: pf=pf[pf.region.isin(regions)]
-        if cats: pf=pf[pf.category_es.isin(cats)]
-        if subs: pf=pf[pf.subcategory.isin(subs)]
-        fc=pf.groupby(['year','mes_num'],as_index=False)['ventas_esperadas'].sum().sort_values(['year','mes_num'])
-        cur_year=int(fc.year.max()) if len(fc) else int(hist.year.max())
-        fc=fc[fc.year==cur_year]
-        fc_start=int(fc.mes_num.min()) if len(fc) else 13
+        def filtered(frame):
+            if regions: frame=frame[frame.region.isin(regions)]
+            if cats: frame=frame[frame.category_es.isin(cats)]
+            if subs: frame=frame[frame.subcategory.isin(subs)]
+            return frame
+        # Forecast: meses del plan (oct–dic 2025) y, si está cargado, los meses futuros (ene–mar 2026).
+        fc_parts=[filtered(plan_df)]+([filtered(fc_df)] if fc_df is not None else [])
+        fc=pd.concat([x[['year','mes_num','ventas_esperadas']] for x in fc_parts])
+        fc=fc.groupby(['year','mes_num'],as_index=False)['ventas_esperadas'].sum().sort_values(['year','mes_num'])
+        start_year=int(plan_df.year.max())  # el eje empieza en enero de este año
+        fc=fc[fc.year>=start_year].copy()
+        fc['pos']=(fc.year-start_year)*12+fc.mes_num  # posición en el eje: 1 = enero 2025 ... 15 = marzo 2026
+        n_months=max(12,int(fc.pos.max())) if len(fc) else 12
+        positions=list(range(1,n_months+1))
+        axis_year=[start_year+(p-1)//12 for p in positions]
+        axis_month=[(p-1)%12+1 for p in positions]
+        fc_start=int(fc.pos.min()) if len(fc) else 13
         fig=go.Figure()
         shown_y=[]
-        for i,y in enumerate(sorted(comp_years or [],reverse=True)):  # años elegidos en "Comparar con" (barra lateral)  # el más reciente más marcado
-            h=hist[hist.year==y]; shown_y+=h.units_sold.tolist()
-            fig.add_trace(go.Scatter(x=h.mes_num,y=h.units_sold,mode='lines+markers',name=f'Ventas reales {y}',customdata=h.mes_num.map(MONTH_NAMES),
-                line=dict(color=MUTED,width=2),marker=dict(size=5),opacity=max(0.85-0.25*i,0.35),
-                hovertemplate=f'%{{customdata}} {y}: %{{y:,.0f}} uds<extra></extra>'))
-        # En los meses pronosticados solo se muestra el forecast (no la venta real de ese mes).
-        cur=hist[(hist.year==cur_year)&(hist.mes_num<fc_start)]; shown_y+=cur.units_sold.tolist()
-        fig.add_trace(go.Scatter(x=cur.mes_num,y=cur.units_sold,mode='lines+markers',name=f'Ventas reales {cur_year}',customdata=cur.mes_num.map(MONTH_NAMES),
-            line=dict(color=BLUE,width=3),hovertemplate=f'%{{customdata}} {cur_year}: %{{y:,.0f}} uds<extra></extra>'))
+        # Mismo mes del año anterior (gris).
+        prev=pd.DataFrame({'pos':positions,'year':[y-1 for y in axis_year],'mes_num':axis_month})
+        prev=prev.merge(hist[['year','mes_num','units_sold']],on=['year','mes_num'],how='left').dropna(subset=['units_sold'])
+        shown_y+=prev.units_sold.tolist()
+        fig.add_trace(go.Scatter(x=prev.pos,y=prev.units_sold,mode='lines+markers',name='Mismo mes del año anterior',
+            customdata=[f'{MONTH_NAMES[m]} {y}' for m,y in zip(prev.mes_num,prev.year)],
+            line=dict(color=MUTED,width=2),marker=dict(size=5),opacity=0.85,
+            hovertemplate='%{customdata}: %{y:,.0f} uds<extra></extra>'))
+        # Ventas reales (azul) hasta antes del primer mes pronosticado; en los meses pronosticados solo se muestra el forecast.
+        cur=hist[(hist.year==start_year)&(hist.mes_num<fc_start)]; shown_y+=cur.units_sold.tolist()
+        fig.add_trace(go.Scatter(x=cur.mes_num,y=cur.units_sold,mode='lines+markers',name=f'Ventas reales {start_year}',
+            customdata=[f'{MONTH_NAMES[m]} {start_year}' for m in cur.mes_num],
+            line=dict(color=BLUE,width=3),hovertemplate='%{customdata}: %{y:,.0f} uds<extra></extra>'))
         if len(fc):
             shown_y+=fc.ventas_esperadas.tolist()
             if len(cur):  # une el último mes real con el primer mes pronosticado
-                fig.add_trace(go.Scatter(x=[cur.mes_num.iloc[-1],fc.mes_num.iloc[0]],y=[cur.units_sold.iloc[-1],fc.ventas_esperadas.iloc[0]],
+                fig.add_trace(go.Scatter(x=[cur.mes_num.iloc[-1],fc.pos.iloc[0]],y=[cur.units_sold.iloc[-1],fc.ventas_esperadas.iloc[0]],
                     mode='lines',line=dict(color=PURPLE,width=3,dash='dot'),showlegend=False,hoverinfo='skip'))
-            fig.add_trace(go.Scatter(x=fc.mes_num,y=fc.ventas_esperadas,mode='lines+markers+text',name=f'Forecast del modelo {cur_year}',customdata=fc.mes_num.map(MONTH_NAMES),
+            fig.add_trace(go.Scatter(x=fc.pos,y=fc.ventas_esperadas,mode='lines+markers+text',name='Forecast del modelo',
+                customdata=[f'{MONTH_NAMES[m]} {y}' for m,y in zip(fc.mes_num,fc.year)],
                 line=dict(color=PURPLE,width=3,dash='dot'),marker=dict(color=PURPLE,size=11,symbol='diamond'),
                 text=[compact(v) for v in fc.ventas_esperadas],textfont=dict(size=14),textposition='top center',
-                hovertemplate=f'%{{customdata}} {cur_year}: %{{y:,.0f}} uds (forecast)<extra></extra>'))
+                hovertemplate='%{customdata}: %{y:,.0f} uds (forecast)<extra></extra>'))
             # La línea roja marca dónde termina el entrenamiento: desde ahí es pronóstico.
             fig.add_vline(x=fc_start-0.5,line_color='#F16363',line_dash='dash',line_width=1.6)
         fig=style_fig(fig,height=300)
         # Ejes más grandes y en negritas (comentario de la maestra); va después de style_fig para no perderse.
+        # Cada enero lleva su año debajo para que se vea dónde empieza 2026.
         fig.update_xaxes(title=dict(text='<b>Mes</b>',font=dict(size=18)),tickfont=dict(size=16),
-                         tickmode='array',tickvals=list(range(1,13)),ticktext=[MONTH_NAMES[m] for m in range(1,13)],
-                         range=[0.6,12.6])
+                         tickmode='array',tickvals=positions,
+                         ticktext=[f'{MONTH_NAMES[m]}<br><b>{y}</b>' if m==1 else MONTH_NAMES[m] for m,y in zip(axis_month,axis_year)],
+                         range=[0.6,n_months+0.6])
         # Eje Y en miles con "k" (800k, 900k, 1000k): Plotly escribiría "1M" y Leo prefiere 1000k.
         y_lo,y_hi=min(shown_y)*0.93,max(shown_y)*1.07  # aire arriba para las etiquetas del forecast
         y_ticks=list(range(-(-int(y_lo)//100_000)*100_000,int(y_hi)+1,100_000))  # múltiplos de 100k dentro del rango
         fig.update_yaxes(title=dict(text='<b>Unidades</b>',font=dict(size=18)),tickfont=dict(size=16),range=[y_lo,y_hi],
                          tickmode='array',tickvals=y_ticks,ticktext=[f'{v//1000}k' for v in y_ticks])
         st.plotly_chart(fig,use_container_width=True,config={'displayModeBar':False})
+        if fc_df is None:
+            st.caption('Sube el pronóstico de ene–mar 2026 en ⚙ Cambiar archivos para verlo al final de la línea de tiempo.')
 
     shown=p if not sel_actions else p[p.accion.isin(sel_actions)]
     shown=shown.sort_values(['accion','valor_inmovilizado'],ascending=[True,False])
