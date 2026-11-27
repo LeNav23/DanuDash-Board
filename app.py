@@ -539,7 +539,7 @@ else:
 
     with st.container(border=True):
         st.subheader('Comparación ventas contra forecast por mes')
-        # Una sola línea de tiempo: 2025 completo y, al final, los meses pronosticados de 2026.
+        # Una sola línea de tiempo: 2025 completo (venta real) y, al final, los meses pronosticados de 2026.
         # La línea gris es el mismo mes del año anterior (2024 para los meses de 2025 y 2025 para los de 2026).
         hist=subset(df,None,regions,cats,subs).groupby('date',as_index=False)['units_sold'].sum().sort_values('date')
         hist=hist.assign(year=hist.date.dt.year,mes_num=hist.date.dt.month)
@@ -548,9 +548,9 @@ else:
             if cats: frame=frame[frame.category_es.isin(cats)]
             if subs: frame=frame[frame.subcategory.isin(subs)]
             return frame
-        # Forecast: meses del plan (oct–dic 2025) y, si está cargado, los meses futuros (ene–mar 2026).
-        fc_parts=[filtered(plan_df)]+([filtered(fc_df)] if fc_df is not None else [])
-        fc=pd.concat([x[['year','mes_num','ventas_esperadas']] for x in fc_parts])
+        # Forecast: solo los meses futuros (ene–mar 2026). Oct–dic 2025 se muestran como venta real.
+        fc=(filtered(fc_df) if fc_df is not None else pd.DataFrame({'year':pd.Series(dtype=int),'mes_num':pd.Series(dtype=int),
+            'ventas_esperadas':pd.Series(dtype=float)}))[['year','mes_num','ventas_esperadas']]
         fc=fc.groupby(['year','mes_num'],as_index=False)['ventas_esperadas'].sum().sort_values(['year','mes_num'])
         start_year=int(plan_df.year.max())  # el eje empieza en enero de este año
         fc=fc[fc.year>=start_year].copy()
@@ -570,7 +570,7 @@ else:
             customdata=[f'{MONTH_NAMES[m]} {y}' for m,y in zip(prev.mes_num,prev.year)],
             line=dict(color=MUTED,width=2),marker=dict(size=5),opacity=0.85,
             hovertemplate='%{customdata}: %{y:,.0f} uds<extra></extra>'))
-        # Ventas reales (azul) hasta antes del primer mes pronosticado; en los meses pronosticados solo se muestra el forecast.
+        # Ventas reales (azul) de 2025 hasta antes del primer mes pronosticado.
         cur=hist[(hist.year==start_year)&(hist.mes_num<fc_start)]; shown_y+=cur.units_sold.tolist()
         fig.add_trace(go.Scatter(x=cur.mes_num,y=cur.units_sold,mode='lines+markers',name=f'Ventas reales {start_year}',
             customdata=[f'{MONTH_NAMES[m]} {start_year}' for m in cur.mes_num],
