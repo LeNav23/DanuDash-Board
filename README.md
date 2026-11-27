@@ -38,3 +38,5 @@ python -m streamlit run app.py
 Carga `Base_final_v2.xlsx` desde **Archivos de datos** en la barra lateral o coloca una copia local en `data/Base_final_v2.xlsx`. También se admite `Base_final.xlsx`. Si ambas versiones están en la carpeta local, se abre la v2 por defecto.
 
 Con la v2, los indicadores de ventas y el pronóstico usan `units_sold_total` como unidades vendidas por producto, región y mes, la misma columna que usa la base para calcular la rotación y el inventario sin vender.
+
+El tablero de **Plan de inventario por región** también usa `Plan_RF_oct_dic_2025.xlsx` y, para la línea de tiempo, `Pronostico_ene_mar_2026.xlsx` (pronóstico de ene–mar 2026 que genera el notebook del Random Forest; no trae stock ni acciones porque esos meses todavía no pasan). Ambos se cargan desde **⚙ Cambiar archivos** o desde `data/`. Sin el pronóstico la gráfica llega solo hasta diciembre 2025.
