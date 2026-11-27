@@ -263,6 +263,26 @@ def prepare_plan(df: pd.DataFrame) -> pd.DataFrame:
     return d
 
 
+# ---------- Pronóstico de meses futuros (Pronostico_ene_mar_2026.xlsx) ----------
+# Estos meses todavía no pasan: no hay stock ni ventas reales, así que solo traen pronóstico y stock recomendado.
+FORECAST_COLUMNS={'product_id','product_name','category','subcategory','region','year','mes_num',
+                  'ventas_esperadas','stock_recomendado'}
+
+
+def prepare_forecast(df: pd.DataFrame) -> pd.DataFrame:
+    """Valida y limpia el Excel del pronóstico futuro. Solo se usan las columnas esenciales."""
+    missing=FORECAST_COLUMNS-set(df.columns)
+    if missing: raise ValueError('El pronóstico no contiene estas columnas: '+', '.join(sorted(missing)))
+    d=df[sorted(FORECAST_COLUMNS)].copy()
+    for c in ('product_id','year','mes_num','ventas_esperadas','stock_recomendado'):
+        d[c]=pd.to_numeric(d[c],errors='coerce')
+    d=d.dropna(subset=['product_id','year','mes_num','ventas_esperadas'])
+    d['year']=d['year'].astype(int)
+    d['mes_num']=d['mes_num'].astype(int)
+    d['category_es']=d['category'].replace(CATS_ES)
+    return d
+
+
 def forecast_vs_last_year(p: pd.DataFrame, base: pd.DataFrame) -> dict:
     """Ventas pronosticadas del mes del plan contra las ventas reales del mismo mes del año anterior.
 
